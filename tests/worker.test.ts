@@ -1,0 +1,201 @@
+import { readFile } from 'node:fs/promises';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
+import worker, { createLink, hashToken, type Env } from '../src/worker/index';
+import { initialDesign, MAX_BODY_BYTES } from '../src/shared/design';
+
+let mf: Miniflare;
+let env: Env;
+const limiter = vi.fn(async () => ({ success: true }));
+const request = (path: string, method = 'GET', body?: unknown, token?: string) =>
+  new Request(`https://forma.test${path}`, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+async function create() {
+  const response = await worker.fetch(request('/api/links', 'POST', initialDesign), env);
+  expect(response.status).toBe(201);
+  const data = (await response.json()) as { id: string; url: string; manageUrl: string };
+  const token = new URLSearchParams(new URL(data.manageUrl).hash.slice(1)).get('token')!;
+  return { ...data, token };
+}
+beforeAll(async () => {
+  mf = new Miniflare(
+    convertV4MiniflareOptions({
+      modules: true,
+      script: 'export default { fetch() { return new Response("test"); } }',
+      compatibilityDate: '2026-09-18',
+      d1Databases: ['DB'],
+    }),
+  );
+  const db = await mf.getD1Database('DB');
+  await db
+    .prepare(await readFile(new URL('../migrations/0001_links.sql', import.meta.url), 'utf8'))
+    .run();
+  env = {
+    DB: db as unknown as D1Database,
+    WRITE_LIMITER: { limit: limiter },
+    ASSETS: { fetch: async () => new Response('spa') },
+  };
+});
+beforeEach(async () => {
+  await env.DB.prepare('DELETE FROM links').run();
+  limiter.mockResolvedValue({ success: true });
+  limiter.mockClear();
+});
+afterAll(async () => {
+  await mf?.dispose();
+});
+
+describe('Worker with real local D1', () => {
+  it('creates an immediately readable link and stores only a token hash', async () => {
+    const link = await create();
+    expect(link.id).toMatch(/^[a-zA-Z0-9]{10}$/);
+    expect(link.token).toHaveLength(43);
+    const row = await env.DB.prepare('SELECT * FROM links WHERE id = ?')
+      .bind(link.id)
+      .first<{ token_hash: string }>();
+    expect(row?.token_hash).toBe(await hashToken(link.token));
+    expect(JSON.stringify(row)).not.toContain(link.token);
+    const response = await worker.fetch(request(`/api/links/${link.id}`), env);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    const publicData = await response.text();
+    expect(publicData).not.toContain(link.token);
+    expect(publicData).not.toContain('token_hash');
+    expect(JSON.parse(publicData).design).toEqual(initialDesign);
+  });
+  it('authorizes updates and deletion, rejects invalid tokens, and returns 404 after deletion', async () => {
+    const link = await create();
+    const path = `/api/links/${link.id}`;
+    expect((await worker.fetch(request(path, 'PUT', initialDesign), env)).status).toBe(401);
+    expect(
+      (await worker.fetch(request(path, 'DELETE', undefined, 'x'.repeat(43)), env)).status,
+    ).toBe(401);
+    const updated = { ...initialDesign, title: 'Updated title' };
+    expect((await worker.fetch(request(path, 'PUT', updated, link.token), env)).status).toBe(200);
+    expect(await (await worker.fetch(request(`/s/${link.id}`), env)).text()).toContain(
+      'Updated title',
+    );
+    expect((await worker.fetch(request(path, 'DELETE', undefined, link.token), env)).status).toBe(
+      204,
+    );
+    expect((await worker.fetch(request(path), env)).status).toBe(404);
+    expect((await worker.fetch(request(`/s/${link.id}`), env)).status).toBe(404);
+  });
+  it('retries ID collisions without overwriting another link', async () => {
+    const first = await createLink(env.DB, initialDesign, () => 'AAAAAAAAAA');
+    const generator = vi.fn().mockReturnValueOnce(first.id).mockReturnValue('BBBBBBBBBB');
+    const second = await createLink(env.DB, { ...initialDesign, title: 'second' }, generator);
+    expect(generator).toHaveBeenCalledTimes(2);
+    expect(second.id).toBe('BBBBBBBBBB');
+    const row = await env.DB.prepare('SELECT token_hash FROM links WHERE id = ?')
+      .bind(first.id)
+      .first<{ token_hash: string }>();
+    expect(row?.token_hash).toBe(await hashToken(first.token));
+  });
+  it('limits writes, leaves reads unthrottled, and rejects cross-origin writes', async () => {
+    const link = await create();
+    limiter.mockResolvedValue({ success: false });
+    for (const [path, method] of [
+      ['/api/links', 'POST'],
+      [`/api/links/${link.id}`, 'PUT'],
+      [`/api/links/${link.id}`, 'DELETE'],
+    ]) {
+      const response = await worker.fetch(
+        request(path, method, method === 'DELETE' ? undefined : initialDesign, link.token),
+        env,
+      );
+      expect(response.status).toBe(429);
+      expect(response.headers.get('Retry-After')).toBe('60');
+    }
+    expect((await worker.fetch(request(`/s/${link.id}`), env)).status).toBe(200);
+    expect((await worker.fetch(request(`/api/links/${link.id}`), env)).status).toBe(200);
+    const foreign = request('/api/links', 'POST', initialDesign);
+    foreign.headers.set('Origin', 'https://other.test');
+    expect((await worker.fetch(foreign, env)).status).toBe(403);
+  });
+  it('returns field errors, bad JSON, oversized requests and proper missing routes', async () => {
+    const invalid = await worker.fetch(
+      request('/api/links', 'POST', { ...initialDesign, title: '' }),
+      env,
+    );
+    expect(invalid.status).toBe(400);
+    expect(await invalid.text()).toContain('title');
+    expect(
+      (
+        await worker.fetch(
+          new Request('https://forma.test/api/links', {
+            method: 'POST',
+            body: '{',
+            headers: { 'Content-Type': 'application/json' },
+          }),
+          env,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await worker.fetch(
+          request('/api/links', 'POST', { extra: 'a'.repeat(MAX_BODY_BYTES) }),
+          env,
+        )
+      ).status,
+    ).toBe(413);
+    expect((await worker.fetch(request('/s/invalid'), env)).status).toBe(404);
+    expect((await worker.fetch(request('/api/unknown'), env)).status).toBe(404);
+    expect(await (await worker.fetch(request('/manage/AAAAAAAAAA'), env)).text()).toBe('spa');
+  });
+  it('serves crawler HTML without JS, escapes JSON and HTML, and keeps secrets out', async () => {
+    const attack = '</script><script>alert("xss")</script> & <img src=x onerror=alert(1)>';
+    const design = {
+      ...initialDesign,
+      title: attack,
+      description: attack,
+      component: {
+        type: 17 as const,
+        components: [{ type: 10 as const, content: attack + '\n[bad](javascript:alert%281%29)' }],
+      },
+    };
+    const link = await createLink(env.DB, design);
+    const req = request(`/s/${link.id}`);
+    req.headers.set(
+      'User-Agent',
+      'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)',
+    );
+    const response = await worker.fetch(req, env);
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain('property="og:title"');
+    expect(body).toContain('class="discord-card"');
+    expect(body).not.toContain('<script>alert');
+    expect(body).not.toContain('href="javascript:');
+    expect(body).not.toContain('<img src="x"');
+    expect(body).not.toContain(link.token);
+    const script =
+      /<script id="discord:component-embed" type="application\/json">([\s\S]*?)<\/script>/.exec(
+        body,
+      )!;
+    expect(JSON.parse(script[1])).toEqual({ component: design.component });
+    const head = await worker.fetch(request(`/s/${link.id}`, 'HEAD'), env);
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe('');
+  });
+  it('normalizes Discord CDN URLs on direct API writes', async () => {
+    const response = await worker.fetch(
+      request('/api/links', 'POST', {
+        ...initialDesign,
+        image: 'https://cdn.discordapp.com/attachments/a.png?ex=x&hm=y',
+      }),
+      env,
+    );
+    const data = (await response.json()) as { id: string };
+    const read = await worker.fetch(request(`/api/links/${data.id}`), env);
+    expect(await read.text()).toContain(
+      'https://dccdngen.avianjay.sbs/https://cdn.discordapp.com/attachments/a.png?ex=x&hm=y',
+    );
+  });
+});

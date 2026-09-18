@@ -1,0 +1,228 @@
+.discord-card {
+  color: #e4e5e9;
+  background: #28292e;
+  border: 1px solid #3a3b41;
+  border-left: 3px solid var(--accent, #bef264);
+  border-radius: 9px;
+  padding: 18px;
+  line-height: 1.6;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+  box-shadow: 0 8px 28px #00000012;
+}
+.discord-card > * + * {
+  margin-top: 14px;
+}
+.discord-card a {
+  color: #8cbaf9;
+  text-decoration: none;
+}
+.discord-card a:hover {
+  text-decoration: underline;
+}
+.discord-markdown > * {
+  margin: 0 0 8px;
+}
+.discord-markdown > *:last-child {
+  margin-bottom: 0;
+}
+.discord-markdown h1 {
+  font-size: 25px !important;
+  color: #f2f3f5 !important;
+  margin: 0 0 10px !important;
+}
+.discord-markdown h2 {
+  font-size: 21px;
+  color: #f2f3f5;
+  letter-spacing: -0.5px;
+}
+.discord-markdown h3 {
+  font-size: 17px;
+  color: #f2f3f5;
+}
+.discord-markdown p {
+  white-space: pre-wrap;
+}
+.discord-markdown ul,
+.discord-markdown ol {
+  padding-left: 24px;
+}
+.discord-markdown blockquote {
+  border-left: 3px solid #62646f;
+  padding-left: 12px;
+  margin-left: 0;
+}
+.discord-markdown pre {
+  padding: 12px;
+  background: #17181b;
+  border: 1px solid #3c3d45;
+  border-radius: 5px;
+  white-space: pre-wrap;
+}
+.discord-markdown code {
+  font-family: ui-monospace, monospace;
+  background: #1b1c20;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.discord-markdown pre code {
+  padding: 0;
+  background: none;
+}
+.discord-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.discord-markdown th,
+.discord-markdown td {
+  border: 1px solid #51525b;
+  padding: 5px;
+}
+.discord-separator {
+  height: 1px;
+  min-height: 1px;
+  margin: 15px 0;
+}
+.discord-separator.with-line {
+  background: #46474f;
+}
+.discord-separator.large {
+  margin: 24px 0;
+}
+.discord-separator:not(.with-line) {
+  height: 8px;
+}
+.discord-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.discord-card .discord-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #54565f;
+  background: #404249;
+  color: #f1f1f3;
+  border-radius: 5px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  min-height: 34px;
+  max-width: 100%;
+  text-decoration: none;
+}
+.discord-card .discord-button:hover {
+  background: #4c4e57;
+}
+.discord-button.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.discord-button .emoji {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
+.discord-section {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.discord-section > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.discord-section > .discord-button {
+  flex-shrink: 0;
+  max-width: 45%;
+}
+.discord-thumbnail {
+  width: 76px;
+  flex-shrink: 0;
+}
+.discord-thumbnail img {
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border-radius: 5px;
+}
+.discord-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.discord-gallery.items-1 {
+  grid-template-columns: 1fr;
+}
+.gallery-item {
+  min-width: 0;
+  background: #202126;
+}
+.gallery-item img,
+.gallery-item video {
+  display: block;
+  width: 100%;
+  height: 200px;
+  object-fit: cover;
+}
+.discord-gallery.items-1 img,
+.discord-gallery.items-1 video {
+  height: auto;
+  max-height: 380px;
+  object-fit: contain;
+}
+.media-placeholder {
+  background: #202126;
+  border: 1px dashed #555660;
+  min-height: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  gap: 8px;
+  padding: 10px;
+  text-align: center;
+  color: #a2a5af;
+}
+.media-placeholder a {
+  overflow-wrap: anywhere;
+}
+.spoiler {
+  background: #1b1c21;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.spoiler > summary {
+  cursor: pointer;
+  padding: 18px;
+  font-size: 12px;
+  color: #b6b8c1;
+  list-style: none;
+}
+.spoiler[open] > summary {
+  padding: 5px 10px;
+  color: #888b97;
+  font-size: 10px;
+}
+.spoiler[open] > *:not(summary) {
+  margin: 10px;
+}
+.text-spoiler {
+  color: transparent;
+  background: #16171b;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.text-spoiler:hover,
+.text-spoiler:focus {
+  color: inherit;
+  background: #454750;
+}
