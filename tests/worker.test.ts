@@ -236,6 +236,9 @@ describe('Worker with real local D1', () => {
     const body = await response.text();
     expect(body).toContain('property="og:title"');
     expect(body).toContain('class="discord-card"');
+    expect(body).toContain(
+      '<aside class="user-content-notice" role="note">此頁面內容由使用者建立。</aside>',
+    );
     expect(body).not.toContain('<script>alert');
     expect(body).not.toContain('href="javascript:');
     expect(body).not.toContain('<img src="x"');
