@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "cv2gen",
+  "name": "forma",
   "main": "src/worker/index.ts",
   "compatibility_date": "2026-09-18",
   "compatibility_flags": ["nodejs_compat"],
@@ -14,7 +14,7 @@
     "binding": "DB",
     "database_name": "cv2gen",
     // Replace with the database_id returned by `npx wrangler d1 create cv2gen` before deployment.
-    "database_id": "00000000-0000-0000-0000-000000000000",
+    "database_id": "25522ee9-293a-4989-a56f-db4d1cc2b8a4",
     "migrations_dir": "migrations"
   }],
   "ratelimits": [{ "name": "WRITE_LIMITER", "namespace_id": "10010918", "simple": { "limit": 10, "period": 60 } }]
