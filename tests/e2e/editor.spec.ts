@@ -1,5 +1,23 @@
 import { expect, test } from '@playwright/test';
 
+test('homepage has a crawler-readable Components V2 embed and a working editor', async ({
+  page,
+}) => {
+  const response = await page.request.get('/', { headers: { 'User-Agent': 'Discordbot/2.0' } });
+  expect(response.status()).toBe(200);
+  const body = await response.text();
+  const match =
+    /<script id="discord:component-embed" type="application\/json">([\s\S]*?)<\/script>/.exec(body);
+  expect(match).not.toBeNull();
+  const payload = JSON.parse(match![1]);
+  expect(payload.component.type).toBe(17);
+  expect(payload.component.components.at(-1).components[0].url).toBe('http://127.0.0.1:5173/');
+  expect(body).toContain('property="og:type" content="website"');
+  await page.goto('/');
+  await expect(page.locator('.editor-panel')).toBeVisible();
+  await expect(page.getByRole('button', { name: '生成短連結', exact: true })).toBeEnabled();
+});
+
 test('visual editing, reorder, duplicate, draft restore, JSON roundtrip and invalid import', async ({
   page,
 }) => {
@@ -84,13 +102,11 @@ test('all component fields, CDN prefix and JSON export', async ({ page }) => {
     page.getByRole('button', { name: '匯出', exact: true }).click(),
   ]);
   expect(download.suggestedFilename()).toBe('component-embed.json');
-  await page
-    .locator('input[type=file]')
-    .setInputFiles({
-      name: 'invalid.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from('{bad'),
-    });
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{bad'),
+  });
   await expect(page.locator('.validation')).toContainText('JSON 格式有誤');
 });
 

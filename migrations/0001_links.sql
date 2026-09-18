@@ -1,4 +1,4 @@
-CREATE TABLE links (
+CREATE TABLE IF NOT EXISTS links (
   id TEXT PRIMARY KEY NOT NULL,
   design_json TEXT NOT NULL,
   token_hash TEXT NOT NULL,

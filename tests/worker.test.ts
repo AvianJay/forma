@@ -2,7 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import worker, { createLink, hashToken, type Env } from '../src/worker/index';
-import { initialDesign, MAX_BODY_BYTES } from '../src/shared/design';
+import { designSchema, initialDesign, MAX_BODY_BYTES, payloadSchema } from '../src/shared/design';
+import { withLinksTable } from '../src/worker/database';
+import { homepageDesign } from '../src/shared/homepage';
 
 let mf: Miniflare;
 let env: Env;
@@ -16,8 +18,8 @@ const request = (path: string, method = 'GET', body?: unknown, token?: string) =
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-async function create() {
-  const response = await worker.fetch(request('/api/links', 'POST', initialDesign), env);
+async function create(testEnv = env) {
+  const response = await worker.fetch(request('/api/links', 'POST', initialDesign), testEnv);
   expect(response.status).toBe(201);
   const data = (await response.json()) as { id: string; url: string; manageUrl: string };
   const token = new URLSearchParams(new URL(data.manageUrl).hash.slice(1)).get('token')!;
@@ -29,7 +31,7 @@ beforeAll(async () => {
       modules: true,
       script: 'export default { fetch() { return new Response("test"); } }',
       compatibilityDate: '2026-09-18',
-      d1Databases: ['DB'],
+      d1Databases: ['DB', 'EMPTY_WRITE_DB', 'EMPTY_READ_DB', 'CONCURRENT_DB'],
     }),
   );
   const db = await mf.getD1Database('DB');
@@ -52,6 +54,69 @@ afterAll(async () => {
 });
 
 describe('Worker with real local D1', () => {
+  it('creates a link in an unmigrated bound database, then safely applies the migration', async () => {
+    const db = (await mf.getD1Database('EMPTY_WRITE_DB')) as unknown as D1Database;
+    const fresh = { ...env, DB: db };
+    const link = await create(fresh);
+    const path = `/api/links/${link.id}`;
+    expect((await worker.fetch(request(path), fresh)).status).toBe(200);
+    await db
+      .prepare(await readFile(new URL('../migrations/0001_links.sql', import.meta.url), 'utf8'))
+      .run();
+    expect((await worker.fetch(request(path), fresh)).status).toBe(200);
+    expect(
+      (
+        await worker.fetch(
+          request(path, 'PUT', { ...initialDesign, title: 'After migration' }, link.token),
+          fresh,
+        )
+      ).status,
+    ).toBe(200);
+  });
+  it('returns 404 rather than 500 when the first request reads an empty database', async () => {
+    const db = (await mf.getD1Database('EMPTY_READ_DB')) as unknown as D1Database;
+    const fresh = { ...env, DB: db };
+    expect((await worker.fetch(request('/api/links/AAAAAAAAAA'), fresh)).status).toBe(404);
+    expect((await worker.fetch(request('/s/AAAAAAAAAA'), fresh)).status).toBe(404);
+  });
+  it('handles concurrent first writes without losing records', async () => {
+    const db = (await mf.getD1Database('CONCURRENT_DB')) as unknown as D1Database;
+    const links = await Promise.all(Array.from({ length: 4 }, () => createLink(db, initialDesign)));
+    expect(new Set(links.map((link) => link.id)).size).toBe(4);
+    expect(await db.prepare('SELECT COUNT(*) AS total FROM links').first('total')).toBe(4);
+  });
+  it('does not create tables or swallow unrelated database failures', async () => {
+    const prepare = vi.fn();
+    const db = { prepare } as unknown as D1Database;
+    for (const message of [
+      'D1_ERROR: no such column: missing: SQLITE_ERROR',
+      'D1_ERROR: no such table: another_table: SQLITE_ERROR',
+      'D1_ERROR: database unavailable',
+    ]) {
+      const operation = vi.fn().mockRejectedValue(new Error(message));
+      await expect(withLinksTable(db, operation)).rejects.toThrow(message);
+      expect(operation).toHaveBeenCalledTimes(1);
+    }
+    expect(prepare).not.toHaveBeenCalled();
+  });
+  it('reports missing deployment bindings without exposing raw errors', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const noDb = { ...env, DB: undefined } as unknown as Env;
+      const missingDb = await worker.fetch(request('/api/links/AAAAAAAAAA'), noDb);
+      expect(missingDb.status).toBe(503);
+      expect(await missingDb.json()).toMatchObject({ code: 'database_binding_missing' });
+      const noLimiter = { ...env, WRITE_LIMITER: undefined } as unknown as Env;
+      const missingLimiter = await worker.fetch(
+        request('/api/links', 'POST', initialDesign),
+        noLimiter,
+      );
+      expect(missingLimiter.status).toBe(503);
+      expect(await missingLimiter.json()).toMatchObject({ code: 'rate_limiter_binding_missing' });
+    } finally {
+      log.mockRestore();
+    }
+  });
   it('creates an immediately readable link and stores only a token hash', async () => {
     const link = await create();
     expect(link.id).toMatch(/^[a-zA-Z0-9]{10}$/);
@@ -197,5 +262,50 @@ describe('Worker with real local D1', () => {
     expect(await read.text()).toContain(
       'https://dccdngen.avianjay.sbs/https://cdn.discordapp.com/attachments/a.png?ex=x&hm=y',
     );
+  });
+});
+
+describe('homepage component embed', () => {
+  it('adds valid CV2 and Open Graph metadata to the initial HTML while preserving the editor', async () => {
+    const source = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    const homepageEnv = {
+      ...env,
+      DB: undefined,
+      WRITE_LIMITER: undefined,
+      ASSETS: {
+        fetch: async () =>
+          new Response(source, {
+            headers: {
+              'Content-Type': 'text/html',
+              ETag: '"static-editor"',
+              'Content-Length': String(source.length),
+            },
+          }),
+      },
+    } as unknown as Env;
+    for (const path of ['/', '/?utm_source=discord', '/index.html']) {
+      const req = request(path);
+      req.headers.set('User-Agent', 'Discordbot/2.0');
+      const response = await worker.fetch(req, homepageEnv);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('ETag')).toBeNull();
+      expect(response.headers.get('Content-Length')).toBeNull();
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      const body = await response.text();
+      expect(body).toContain('<div id="root"></div>');
+      expect(body).toContain('src="/src/client/main.tsx"');
+      expect(body).toContain('property="og:type" content="website"');
+      expect(body).toContain('property="og:url" content="https://forma.test/"');
+      const script =
+        /<script id="discord:component-embed" type="application\/json">([\s\S]*?)<\/script>/.exec(
+          body,
+        )!;
+      const parsed = payloadSchema.parse(JSON.parse(script[1]));
+      expect(parsed).toEqual({ component: homepageDesign('https://forma.test').component });
+      expect(designSchema.safeParse(homepageDesign('https://forma.test')).success).toBe(true);
+    }
+    const head = await worker.fetch(request('/', 'HEAD'), homepageEnv);
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe('');
   });
 });

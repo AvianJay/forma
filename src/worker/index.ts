@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { designSchema, issuesFrom, MAX_BODY_BYTES, type Design } from '../shared/design';
 import { Preview } from '../shared/Preview';
 import previewStyles from '../shared/preview.css?inline';
+import { homepageDesign } from '../shared/homepage';
+import { ServiceConfigurationError, withLinksTable } from './database';
 
 export interface Env {
   DB: D1Database;
@@ -55,12 +57,14 @@ export async function createLink(db: D1Database, design: Design, generateId = sh
   const now = new Date().toISOString();
   for (let attempt = 0; attempt < 5; attempt++) {
     const id = generateId();
-    const result = await db
-      .prepare(
-        'INSERT INTO links (id, design_json, token_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING',
-      )
-      .bind(id, JSON.stringify(design), tokenHash, now, now)
-      .run();
+    const result = await withLinksTable(db, () =>
+      db
+        .prepare(
+          'INSERT INTO links (id, design_json, token_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING',
+        )
+        .bind(id, JSON.stringify(design), tokenHash, now, now)
+        .run(),
+    );
     if (result.meta.changes === 1) return { id, token, createdAt: now };
   }
   throw new Error('Could not allocate a unique link ID');
@@ -115,17 +119,25 @@ function htmlEscape(value: string) {
   );
 }
 
-export function renderPage(design: Design, url: string): string {
+export function renderMetadata(
+  design: Design,
+  url: string,
+  type: 'article' | 'website' = 'article',
+): string {
   const payload = JSON.stringify({ component: design.component })
     .replaceAll('<', '\\u003c')
     .replaceAll('>', '\\u003e')
     .replaceAll('&', '\\u0026');
+  return `<meta property="og:title" content="${htmlEscape(design.title)}"><meta property="og:description" content="${htmlEscape(design.description)}"><meta property="og:url" content="${htmlEscape(url)}"><meta property="og:type" content="${type}">
+${design.image ? `<meta property="og:image" content="${htmlEscape(design.image)}">` : ''}<meta name="twitter:card" content="${design.image ? 'summary_large_image' : 'summary'}">
+<script id="discord:component-embed" type="application/json">${payload}</script>`;
+}
+
+export function renderPage(design: Design, url: string): string {
   const content = renderToStaticMarkup(createElement(Preview, { component: design.component }));
   const title = htmlEscape(design.title);
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Forma</title>
-<meta property="og:title" content="${title}"><meta property="og:description" content="${htmlEscape(design.description)}"><meta property="og:url" content="${htmlEscape(url)}"><meta property="og:type" content="article">
-${design.image ? `<meta property="og:image" content="${htmlEscape(design.image)}">` : ''}<meta name="twitter:card" content="${design.image ? 'summary_large_image' : 'summary'}">
-<script id="discord:component-embed" type="application/json">${payload}</script><link rel="icon" href="/favicon.svg"><style>${previewStyles}
+${renderMetadata(design, url)}<link rel="icon" href="/favicon.svg"><style>${previewStyles}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101113;color:#f1f1f3;font-family:system-ui,sans-serif;padding:48px 20px}main{max-width:560px;margin:60px auto}header{display:flex;gap:10px;align-items:center;font-weight:700;letter-spacing:-.5px}header img{width:30px;height:30px}footer{margin-top:24px;font-size:12px;color:#8d8f97}footer a{color:#bef264}h1{font-size:14px;color:#a6a8af;margin-bottom:20px}</style><script src="/media-fallback.js" defer></script></head>
 <body><header><img src="/favicon.svg" alt="">forma<span style="font-weight:400;color:#737780">/ 連結分享</span></header><main><h1>${title}</h1>${content}<footer>使用 <a href="/">Forma</a>，把你的點子變成一個連結。</footer></main></body></html>`;
 }
@@ -147,6 +159,22 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const path = url.pathname;
   const isApi = path === '/api' || path.startsWith('/api/');
   const isPage = path === '/s' || path.startsWith('/s/');
+  if ((path === '/' || path === '/index.html') && ['GET', 'HEAD'].includes(request.method)) {
+    const asset = await env.ASSETS.fetch(new Request(request, { method: 'GET' }));
+    if (!asset.ok || !asset.headers.get('Content-Type')?.includes('text/html')) return asset;
+    const source = await asset.text();
+    const metadata = renderMetadata(homepageDesign(url.origin), `${url.origin}/`, 'website');
+    const headers = new Headers(asset.headers);
+    for (const name of ['Content-Length', 'Content-Encoding', 'ETag', 'Last-Modified'])
+      headers.delete(name);
+    for (const [name, value] of Object.entries(commonHeaders)) headers.set(name, value);
+    // This is our own Vite-built HTML template, not user-supplied markup. Preserve all
+    // editor scripts/styles while adding crawler-readable metadata to the real response.
+    return new Response(
+      request.method === 'HEAD' ? null : source.replace(/<\/head>/i, () => `${metadata}</head>`),
+      { status: asset.status, headers },
+    );
+  }
   if (!isApi && !isPage) return env.ASSETS.fetch(request);
   const publicMatch = /^\/s\/([A-Za-z0-9]{10})$/.exec(path);
   const itemMatch = /^\/api\/links\/([A-Za-z0-9]{10})$/.exec(path);
@@ -162,6 +190,9 @@ async function handle(request: Request, env: Env): Promise<Response> {
   if (write) {
     const origin = request.headers.get('Origin');
     if (origin && origin !== url.origin) return json({ error: '不允許跨網站寫入' }, 403);
+    if (!env.WRITE_LIMITER || typeof env.WRITE_LIMITER.limit !== 'function') {
+      throw new ServiceConfigurationError('rate_limiter_binding_missing');
+    }
     const { success } = await env.WRITE_LIMITER.limit({
       key: request.headers.get('CF-Connecting-IP') || 'local-development',
     });
@@ -184,7 +215,9 @@ async function handle(request: Request, env: Env): Promise<Response> {
     );
   }
   const id = (publicMatch || itemMatch)![1];
-  const row = await env.DB.prepare('SELECT * FROM links WHERE id = ?').bind(id).first<LinkRow>();
+  const row = await withLinksTable(env.DB, () =>
+    env.DB.prepare('SELECT * FROM links WHERE id = ?').bind(id).first<LinkRow>(),
+  );
   if (!row)
     return isApi
       ? json({ error: '找不到此連結' }, 404)
@@ -231,8 +264,18 @@ export default {
       return await handle(request, env);
     } catch (error) {
       if (error instanceof RequestError) return json({ error: error.message }, error.status);
+      if (error instanceof ServiceConfigurationError) {
+        console.error('Link service configuration error', { category: error.code });
+        return json({ error: error.message, code: error.code }, 503);
+      }
       // Never log request bodies, authorization headers, or generated management URLs.
-      console.error('Link request failed', { method: request.method, category: 'internal_error' });
+      console.error('Link request failed', {
+        method: request.method,
+        category:
+          error instanceof Error && /D1_ERROR/.test(error.message)
+            ? 'database_error'
+            : 'internal_error',
+      });
       return json({ error: '服務暫時無法處理，請稍後再試' }, 500);
     }
   },

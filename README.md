@@ -20,6 +20,7 @@ npm run dev
 - 元件複製、刪除、上下排序、即時 Discord 模擬預覽、手機編輯／預覽頁籤。
 - JSON 即時驗證、匯入／匯出。草稿保存在目前瀏覽器；未完成的 JSON 會保留，重新載入後可繼續修正。
 - 10 字元隨機短碼、永久有效（直到刪除）、公開展示頁、獨立的私人管理連結。
+- 首頁本身也有 Components V2 與 Open Graph 預覽，直接把首頁網址貼到 Discord 就能介紹網站。
 - 縮圖、相簿和 Open Graph 封面內的 Discord CDN 網址會自動變成：
 
 ```text
@@ -35,16 +36,18 @@ npx wrangler login
 npx wrangler d1 create cv2gen
 ```
 
-把建立結果的 `database_id` 填入 `wrangler.jsonc` 的 `d1_databases[0].database_id`，取代全零佔位值。確認 `ratelimits[0].namespace_id` 未被帳戶內其他無關專案使用（共用 ID 會共用計數）。再執行：
+本倉庫已設定正式站使用的 D1 ID。若部署到自己的 Cloudflare 帳戶，將建立結果的 `database_id` 填入 `wrangler.jsonc` 的 `d1_databases[0].database_id`，並調整 Worker 名稱。確認 `ratelimits[0].namespace_id` 未被帳戶內其他無關專案使用（共用 ID 會共用計數）。再執行：
 
 ```sh
 npm run db:remote
 npm run deploy
 ```
 
-預設部署至 `cv2gen.<你的帳戶子網域>.workers.dev`。未設定任何付費媒體儲存或自訂網域。若使用 CI，讓 Wrangler 從執行環境取得 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`，不要把密鑰寫進程式碼或輸出到日誌。
+目前 Worker 名稱為 `forma`，正式站為 https://cv2.avianjay.sbs/ 。部署者亦可使用 `forma.<你的帳戶子網域>.workers.dev`。自訂網域在 Cloudflare 管理，不由這份設定覆寫。若使用 CI，讓 Wrangler 從執行環境取得 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`，不要把密鑰寫進程式碼或輸出到日誌。
 
-初次部署先套用 migration，再發布 Worker。既有資料會保留；後續資料結構變更應加入新 migration，不要修改已套用的 SQL。前端資產經 Static Assets 提供，`/api/*` 與 `/s/*` 明確先經 Worker。如需測試正式產物，可執行 `npm run build` 後使用 `npm run preview`。
+建議先套用 migration，再發布 Worker。若只透過 Workers Builds 綁定空的 D1 並部署，首次存取時會在確定缺少 `links` 表後，以同一份初始 SQL 安全建立資料表並重試；既有表與資料不會被覆寫。初始 migration 使用 `IF NOT EXISTS`，之後補跑 `npm run db:remote` 亦不會衝突。其他資料庫錯誤不會觸發建表；後續結構變更仍須加入新的 migration。
+
+前端資產經 Static Assets 提供，`/`、`/index.html`、`/api/*` 與 `/s/*` 明確先經 Worker。首頁保留完整編輯器資產，並在回傳的 HTML 中加入 CV2 與 Open Graph；不需 JavaScript、User-Agent 判斷或 D1 即可供 Discord 讀取。如需測試正式產物，可執行 `npm run build` 後使用 `npm run preview`。
 
 ## HTTP API
 
@@ -76,7 +79,7 @@ npm run deploy
 }
 ```
 
-JSON 編輯器與匯出檔案只包含 `{ "component": … }`，不含網站預覽 metadata。錯誤回應為 `{ "error": "說明", "issues": [{ "path": "欄位路徑", "message": "原因" }] }`，`issues` 僅驗證失敗時提供。常見狀態：400 格式錯誤、401 管理密鑰無效、403 跨站寫入、404 不存在、405 方法不支援、413 超過 64 KiB、429 限流（附 `Retry-After: 60`）、500 服務錯誤。
+JSON 編輯器與匯出檔案只包含 `{ "component": … }`，不含網站預覽 metadata。錯誤回應為 `{ "error": "說明", "issues": [{ "path": "欄位路徑", "message": "原因" }] }`，`issues` 僅驗證失敗時提供。常見狀態：400 格式錯誤、401 管理密鑰無效、403 跨站寫入、404 不存在、405 方法不支援、413 超過 64 KiB、429 限流（附 `Retry-After: 60`）、500 服務錯誤。缺少 D1 或限流 binding 時回傳 503 及固定的 `code`（`database_binding_missing` 或 `rate_limiter_binding_missing`），方便管理者辨識設定問題；不會略過授權或限流。
 
 私人管理連結格式為 `/manage/:id#token=…`。256-bit 密鑰只在建立時回傳；D1 僅存 SHA-256 雜湊。URL fragment 不會送至伺服器，管理操作改用 Authorization header。公開 API、HTML 與日誌均不含密鑰。持有管理連結就能修改／刪除；遺失後沒有找回機制。管理模式的未發布修改不寫入本機草稿，离開頁面時會提示。
 
