@@ -139,7 +139,7 @@ export function renderPage(design: Design, url: string): string {
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Forma</title>
 ${renderMetadata(design, url)}<link rel="icon" href="/favicon.svg"><style>${previewStyles}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101113;color:#f1f1f3;font-family:system-ui,sans-serif;padding:48px 20px}main{max-width:560px;margin:60px auto}header{display:flex;gap:10px;align-items:center;font-weight:700;letter-spacing:-.5px}header img{width:30px;height:30px}.user-content-notice{margin-bottom:16px;padding:10px 12px;border:1px solid #34363d;border-radius:8px;background:#191a1f;color:#a6a8af;font-size:12px;line-height:1.5}footer{margin-top:24px;font-size:12px;color:#8d8f97}footer a{color:#bef264}h1{font-size:14px;color:#a6a8af;margin-bottom:20px}</style><script src="/media-fallback.js" defer></script></head>
-<body><header><img src="/favicon.svg" alt="">forma<span style="font-weight:400;color:#737780">/ 連結分享</span></header><main><aside class="user-content-notice" role="note">此頁面內容由使用者建立。</aside><h1>${title}</h1>${content}<footer>使用 <a href="/">Forma</a>，把你的點子變成一個連結。</footer></main></body></html>`;
+<body><header><img src="/favicon.svg" alt="">forma<span style="font-weight:400;color:#737780">/ 卡片預覽</span></header><main><aside class="user-content-notice" role="note">此頁面內容由使用者建立。</aside><h1>${title}</h1>${content}<footer>使用 <a href="/">Forma</a> 製作。</footer></main></body></html>`;
 }
 
 function html(body: string, status = 200) {

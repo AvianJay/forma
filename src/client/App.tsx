@@ -127,6 +127,9 @@ export function App() {
   const [storageFailed, setStorageFailed] = useState(false);
   const [result, setResult] = useState<{ url: string; manageUrl?: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [dropPosition, setDropPosition] = useState<'above' | 'below' | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const deleteRef = useRef<HTMLDialogElement>(null);
@@ -236,6 +239,17 @@ export function App() {
     update({ ...design, component: { ...design.component, components: list } });
     setSelected(index + offset);
   }
+  function reorder(from: number, to: number, pos: 'above' | 'below') {
+    if (from === to) return;
+    const list = [...design.component.components];
+    const [item] = list.splice(from, 1);
+    const insertIndex = from < to 
+      ? (pos === 'above' ? to - 1 : to)
+      : (pos === 'above' ? to : to + 1);
+    list.splice(insertIndex, 0, item);
+    update({ ...design, component: { ...design.component, components: list } });
+    setSelected(insertIndex);
+  }
   function add(type: Child['type']) {
     update({
       ...design,
@@ -334,7 +348,7 @@ export function App() {
           </span>
         </a>
         <div className="brand-divider" />
-        <span className="topbar-title">Discord 連結設計器</span>
+        <span className="topbar-title">Discord 卡片設計器</span>
         <span className="version-tag">COMPONENTS V2</span>
         <a
           className="docs-link"
@@ -349,14 +363,14 @@ export function App() {
         <div className="page-heading">
           <div>
             <div className="eyebrow">
-              <span /> A LITTLE LINK. A BIG IMPRESSION.
+              <span /> DISCORD COMPONENTS V2
             </div>
-            <h1>{managerId ? '讓你的分享，持續精彩。' : '你的內容，值得更好的登場。'}</h1>
-            <p>自由組合文字、媒體與按鈕。把你的設計，變成一個 Discord 短連結。</p>
+            <h1>{managerId ? '管理卡片內容' : '你的內容，值得更好的登場。'}</h1>
+            <p>自由組合文字、媒體與按鈕，即時打造專屬卡片。</p>
           </div>
           <div className="heading-status">
             <ShieldCheck size={15} />
-            免登入，開始創作
+            無需註冊 · 即開即用
           </div>
         </div>
         {error && (
@@ -369,7 +383,7 @@ export function App() {
         )}
         {deleted && (
           <div className="notice">
-            此連結已刪除。<a href="/">建立新的設計 ↗</a>
+            內容已刪除。<a href="/">建立新卡片 ↗</a>
           </div>
         )}
         {managerId && !deleted && (
@@ -380,7 +394,7 @@ export function App() {
               <a href={`/s/${managerId}`} target="_blank" rel="noreferrer">
                 /s/{managerId} ↗
               </a>
-              。儲存會更新原連結；Discord 預覽可能延遲更新。
+              。儲存即更新公開內容；Discord 預覽快取可能稍有延遲。
             </span>
           </div>
         )}
@@ -440,7 +454,7 @@ export function App() {
                         <LayoutTemplate size={17} />
                       </span>
                       <span>
-                        預覽資訊<small>標題、描述與分享封面</small>
+                        預覽資訊<small>標題、說明與封面圖片</small>
                       </span>
                     </div>
                     <ChevronDown size={16} />
@@ -532,18 +546,79 @@ export function App() {
                     <div className="component-list">
                       {design.component.components.map((child, index) => {
                         const Icon = icons[child.type];
+                        const isDragging = dragIndex === index;
+                        const isDropTarget = dragOverIndex === index && dropPosition;
                         return (
                           <article
-                            className={`component-block ${selected === index ? 'selected' : ''}`}
+                            className={`component-block ${selected === index ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isDropTarget ? `drop-${dropPosition}` : ''}`}
                             key={index}
+                            onDragOver={(e) => {
+                              if (dragIndex === null || dragIndex === index) return;
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const midY = rect.top + rect.height / 2;
+                              const pos = e.clientY < midY ? 'above' : 'below';
+                              if (dragOverIndex !== index || dropPosition !== pos) {
+                                setDragOverIndex(index);
+                                setDropPosition(pos);
+                              }
+                            }}
+                            onDragLeave={(e) => {
+                              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                                if (dragOverIndex === index) {
+                                  setDragOverIndex(null);
+                                  setDropPosition(null);
+                                }
+                              }
+                            }}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              if (dragIndex === null || dragIndex === index) {
+                                setDragIndex(null);
+                                setDragOverIndex(null);
+                                setDropPosition(null);
+                                return;
+                              }
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              const midY = rect.top + rect.height / 2;
+                              const pos = e.clientY < midY ? 'above' : 'below';
+                              reorder(dragIndex, index, pos);
+                              setDragIndex(null);
+                              setDragOverIndex(null);
+                              setDropPosition(null);
+                            }}
                           >
                             <div className="component-toolbar">
+                              <div
+                                className="drag-handle"
+                                draggable
+                                title="拖曳以排序"
+                                aria-label={`拖曳排序元件 ${index + 1}`}
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData('text/plain', String(index));
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  const block = (e.currentTarget as HTMLElement).closest(
+                                    '.component-block',
+                                  ) as HTMLElement;
+                                  if (block) {
+                                    e.dataTransfer.setDragImage(block, 20, 20);
+                                  }
+                                  setDragIndex(index);
+                                }}
+                                onDragEnd={() => {
+                                  setDragIndex(null);
+                                  setDragOverIndex(null);
+                                  setDropPosition(null);
+                                }}
+                              >
+                                <GripVertical className="grip" size={15} />
+                              </div>
                               <button
                                 className="component-select"
                                 aria-expanded={selected === index}
                                 onClick={() => setSelected(selected === index ? null : index)}
                               >
-                                <GripVertical className="grip" size={15} />
                                 <span className="component-icon">
                                   <Icon size={16} />
                                 </span>
@@ -704,7 +779,7 @@ export function App() {
             <div className="editor-footer">
               <span>
                 <ShieldCheck size={14} />
-                只有持有管理連結的人能修改
+                {managerId ? '已驗證管理權限' : '發布後取得專屬管理密鑰'}
               </span>
               <button
                 className="text-action"
@@ -732,7 +807,7 @@ export function App() {
             </div>
             <div className="preview-surface">
               <div className="channel-label">
-                <span>#</span> 你的下一次分享{' '}
+                <span>#</span> 預覽頻道{' '}
                 <span className="channel-icon">
                   <Layers size={14} />
                 </span>
@@ -758,11 +833,11 @@ export function App() {
               <div className="publish-icon">
                 <Link2 size={23} />
               </div>
-              <h2>設計完成，分享就緒。</h2>
+              <h2>準備發布</h2>
               <p>
-                一個短連結，讓大家看見你的完整想法。
+                生成專屬網址，貼入 Discord 即可呈現卡片。
                 <br />
-                免登入，連結永久有效。
+                永久有效，無需註冊帳號。
               </p>
               <button className="publish-button" disabled={disabled} onClick={publish}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}
@@ -773,7 +848,7 @@ export function App() {
                 <CheckIcon size={12} />
                 公開展示頁<span>·</span>
                 <CheckIcon size={12} />
-                私人管理連結
+                附管理憑證
               </div>
               {managerId && !deleted && (
                 <button
@@ -789,14 +864,14 @@ export function App() {
             <div className="tip">
               <span>✦</span>
               <p>
-                <strong>讓連結，多一點個性。</strong>
-                試著加上醒目的標題、一張圖片，或一個讓人想點擊的按鈕。
+                <strong>設計小技巧</strong>
+                加入醒目標題、配圖或按鈕，讓卡片更具吸引力。
               </p>
             </div>
           </aside>
         </div>
         <footer className="page-footer">
-          <span>MADE FOR YOUR NEXT GREAT SHARE.</span>
+          <span>FORMA · DISCORD COMPONENTS V2</span>
           <span>
             Cloudflare Workers <i /> Discord Components V2
           </span>
@@ -814,8 +889,8 @@ export function App() {
           <CheckIcon size={25} />
         </div>
         <div className="eyebrow">READY TO SHARE</div>
-        <h2>{managerId ? '已更新，精彩繼續。' : '你的分享，有了新樣子。'}</h2>
-        <p>把短連結貼到 Discord，就能展示你的設計。</p>
+        <h2>{managerId ? '已更新卡片內容' : '卡片已成功建立'}</h2>
+        <p>將網址貼到 Discord 頻道，即可自動展開卡片。</p>
         {result && (
           <>
             <Field label="公開短連結">

@@ -185,3 +185,18 @@ test('unfinished visual drafts survive reload without losing components', async 
   await page.locator('.component-block').last().locator('.component-select').click();
   await expect(page.getByLabel('媒體網址', { exact: true })).toHaveValue('https://');
 });
+
+test('drag and drop reordering of components', async ({ page }) => {
+  await page.goto('/');
+  const blocks = page.locator('.component-block');
+  await expect(blocks).toHaveCount(4);
+  await expect(blocks.nth(0)).toContainText('文字');
+  await expect(blocks.nth(1)).toContainText('分隔線');
+
+  // Drag component 1 (Divider) to above component 0 (Text)
+  const handle1 = blocks.nth(1).locator('.drag-handle');
+  await handle1.dragTo(blocks.nth(0));
+
+  await expect(blocks.nth(0)).toContainText('分隔線');
+  await expect(blocks.nth(1)).toContainText('文字');
+});

@@ -237,18 +237,18 @@ export function issuesFrom(error: z.ZodError): Issue[] {
 export const initialDesign: Design = {
   schemaVersion: 1,
   title: '把好點子，分享出去。',
-  description: '一個連結，裝下你的下一個精彩計畫。',
+  description: '在 Discord 打造吸睛的互動卡片，完整呈現你的點子。',
   image: '',
   component: {
     type: 17,
     accent_color: 12513892,
     components: [
-      { type: 10, content: '## 把好點子，分享出去。\n一個連結，裝下你的下一個精彩計畫。' },
+      { type: 10, content: '## 把好點子，分享出去。\n在 Discord 打造專屬的精美互動卡片。' },
       { type: 14, divider: true, spacing: 1 },
       {
         type: 10,
         content:
-          '✦ **為你的社群而設計**\n寫下最新消息、展示作品，或邀請大家一起參與。\n\n從左側開始編輯，讓這張卡片成為你的樣子。',
+          '✦ **專為社群打造**\n展示作品、發布公告，或凝聚社群成員。\n\n從左側開始編輯，自訂卡片內容與樣式。',
       },
       {
         type: 1,

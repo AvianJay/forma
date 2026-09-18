@@ -434,9 +434,23 @@ fieldset {
   background: #1e2024;
   border-radius: 8px;
   overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
 }
 .component-block.selected {
   border-color: #596a43;
+}
+.component-block.dragging {
+  opacity: 0.35;
+  border-style: dashed;
+  border-color: #555865;
+}
+.component-block.drop-above {
+  border-top-color: var(--lime);
+  box-shadow: 0 -2px 0 0 var(--lime);
+}
+.component-block.drop-below {
+  border-bottom-color: var(--lime);
+  box-shadow: 0 2px 0 0 var(--lime);
 }
 .component-toolbar {
   display: flex;
@@ -444,6 +458,26 @@ fieldset {
   min-height: 49px;
   padding: 0 10px 0 8px;
   gap: 3px;
+}
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: grab;
+  color: #50535d;
+  flex-shrink: 0;
+  transition: color 0.15s, background-color 0.15s;
+  user-select: none;
+}
+.drag-handle:hover {
+  color: #c9cdd7;
+  background: #282a30;
+}
+.drag-handle:active {
+  cursor: grabbing;
 }
 .component-select {
   display: flex;
@@ -456,7 +490,8 @@ fieldset {
   font-size: 12px;
 }
 .grip {
-  color: #50535d;
+  color: inherit;
+  pointer-events: none;
 }
 .component-icon {
   color: #afb2bd;
