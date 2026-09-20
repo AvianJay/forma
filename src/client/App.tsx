@@ -475,7 +475,10 @@ export function App() {
                         onChange={(e) => update({ ...design, description: e.target.value })}
                       />
                     </Field>
-                    <Field label="封面網址（選填）" hint="Discord CDN 封面也會自動套用媒體前綴。">
+                    <Field
+                      label="封面網址（選填）"
+                      hint="cdn.discordapp.com 的 attachments 網址會自動套用媒體前綴。"
+                    >
                       <input
                         type="url"
                         value={design.image || ''}

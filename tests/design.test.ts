@@ -111,7 +111,13 @@ describe('Discord payload validation', () => {
         payload([
           {
             type: 12,
-            items: [{ media: { url: 'https://cdn.discordapp.com/' + 'a'.repeat(2010) } }],
+            items: [
+              {
+                media: {
+                  url: 'https://cdn.discordapp.com/attachments/' + 'a'.repeat(1980),
+                },
+              },
+            ],
           },
         ]),
       ).success,
@@ -120,23 +126,26 @@ describe('Discord payload validation', () => {
 });
 
 describe('Discord CDN normalization', () => {
-  it.each([
-    'cdn.discordapp.com',
-    'media.discordapp.net',
-    'images-ext-1.discordapp.net',
-    'images-ext-2.discordapp.net',
-  ])('prefixes %s exactly once and preserves signed queries', (host) => {
-    const url = `https://${host}/attachments/123/test.png?ex=abc&is=def&hm=ghi`;
+  it('prefixes Discord attachment URLs exactly once and preserves signed queries', () => {
+    const url = 'https://cdn.discordapp.com/attachments/123/test.png?ex=abc&is=def&hm=ghi';
     expect(normalizeMediaUrl(url)).toBe(CDN_PREFIX + url);
     expect(normalizeMediaUrl(normalizeMediaUrl(url))).toBe(CDN_PREFIX + url);
   });
-  it('does not match spoofed domains, path text, non-HTTP schemes or ordinary hosts', () => {
+  it('leaves every URL outside the Discord HTTPS attachment path unchanged', () => {
     for (const url of [
-      'https://cdn.discordapp.com.evil.test/a',
-      'https://example.com/cdn.discordapp.com',
+      'http://cdn.discordapp.com/attachments/a.png',
+      'https://cdn.discordapp.com/a.png',
+      'https://cdn.discordapp.com/attachments-not/a.png',
+      'https://media.discordapp.net/attachments/a.png',
+      'https://cdn.discordapp.net/attachments/a.png',
+      'https://cdn.discord.com/attachments/a.png',
+      'https://images-ext-1.discordapp.net/attachments/a.png',
+      'https://cdn.discordapp.com.evil.test/attachments/a.png',
+      'https://example.com/cdn.discordapp.com/attachments/a.png',
       'https://example.com/a',
-      'ftp://cdn.discordapp.com/a',
-      'https://user:pass@cdn.discordapp.com/a',
+      'ftp://cdn.discordapp.com/attachments/a.png',
+      'https://user:pass@cdn.discordapp.com/attachments/a.png',
+      'https://cdn.discordapp.com:8443/attachments/a.png',
     ])
       expect(normalizeMediaUrl(url)).toBe(url);
   });

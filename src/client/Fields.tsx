@@ -55,7 +55,7 @@ function UrlField({
   label?: string;
 }) {
   return (
-    <Field label={label} hint="Discord CDN 網址會自動加上指定的媒體前綴。">
+    <Field label={label} hint="cdn.discordapp.com 的 attachments 網址會自動加上指定的媒體前綴。">
       <input
         type="url"
         value={value}

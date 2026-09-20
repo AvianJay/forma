@@ -8,17 +8,13 @@ export function normalizeMediaUrl(value: string): string {
   const trimmed = value.trim();
   try {
     const url = new URL(trimmed);
-    const hosts = [
-      'cdn.discordapp.com',
-      'media.discordapp.net',
-      'cdn.discordapp.net',
-      'cdn.discord.com',
-    ];
     if (
-      ['http:', 'https:'].includes(url.protocol) &&
+      url.protocol === 'https:' &&
       !url.username &&
       !url.password &&
-      (hosts.includes(url.hostname) || /^images-ext-\d+\.discordapp\.net$/.test(url.hostname))
+      url.hostname === 'cdn.discordapp.com' &&
+      !url.port &&
+      url.pathname.startsWith('/attachments/')
     ) {
       return CDN_PREFIX + trimmed;
     }

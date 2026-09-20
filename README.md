@@ -21,13 +21,13 @@ npm run dev
 - JSON 即時驗證、匯入／匯出。草稿保存在目前瀏覽器；未完成的 JSON 會保留，重新載入後可繼續修正。
 - 10 字元隨機短碼、永久有效（直到刪除）、公開展示頁、獨立的私人管理連結。
 - 首頁本身也有 Components V2 與 Open Graph 預覽，直接把首頁網址貼到 Discord 就能介紹網站。
-- 縮圖、相簿和 Open Graph 封面內的 Discord CDN 網址會自動變成：
+- 縮圖、相簿和 Open Graph 封面內，符合 `https://cdn.discordapp.com/attachments/*` 的網址會自動變成：
 
 ```text
 https://dccdngen.avianjay.sbs/https://cdn.discordapp.com/attachments/…?ex=…&is=…&hm=…
 ```
 
-以 hostname 精確辨識 `cdn.discordapp.com`、`media.discordapp.net`、`cdn.discordapp.net`、`cdn.discord.com`、`images-ext-N.discordapp.net`。保留原始查詢參數且不重複加入前綴。一般媒體網址及按鈕目的網址維持原樣。轉換後仍受媒體網址 2,048 字元上限約束。Worker 不代理抓取媒體，該前綴服務的可用性與 Discord 存取能力需由部署者確認。
+僅精確辨識 HTTPS 的 `cdn.discordapp.com` hostname 與 `/attachments/` 路徑。保留原始查詢參數且不重複加入前綴；其他 Discord 網址、一般媒體網址及按鈕目的網址均維持原樣。轉換後仍受媒體網址 2,048 字元上限約束。Worker 不代理抓取媒體，該前綴服務的可用性與 Discord 存取能力需由部署者確認。
 
 ## 部署到 Cloudflare
 

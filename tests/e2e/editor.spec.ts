@@ -77,6 +77,9 @@ test('all component fields, CDN prefix and JSON export', async ({ page }) => {
     .getByLabel('媒體網址', { exact: false })
     .fill('https://media.discordapp.net/attachments/clip.mp4');
   await page.getByLabel('媒體替代文字').click();
+  await expect(page.getByLabel('媒體網址', { exact: false })).toHaveValue(
+    'https://media.discordapp.net/attachments/clip.mp4',
+  );
   await page.getByLabel('隱藏媒體（Spoiler）').check();
   await page
     .locator('.component-palette')
@@ -93,8 +96,8 @@ test('all component fields, CDN prefix and JSON export', async ({ page }) => {
   expect(payload.component.components[4].accessory.media.url).toMatch(
     /^https:\/\/dccdngen\.avianjay\.sbs\/https:\/\/cdn\.discordapp\.com/,
   );
-  expect(payload.component.components[5].items[0].media.url).toContain(
-    '/https://media.discordapp.net/',
+  expect(payload.component.components[5].items[0].media.url).toBe(
+    'https://media.discordapp.net/attachments/clip.mp4',
   );
   expect(payload.component.components[6].spacing).toBe(2);
   const [download] = await Promise.all([
