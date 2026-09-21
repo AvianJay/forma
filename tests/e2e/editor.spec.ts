@@ -161,6 +161,135 @@ test('all component fields, CDN prefix and JSON export', async ({ page }) => {
   await expect(page.locator('.validation')).toContainText('JSON 格式有誤');
 });
 
+test('copies safe website HTML from the current visual or JSON design without publishing', async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.route('https://dccdngen.avianjay.sbs/**', (route) => route.fulfill({ status: 404 }));
+  await page.goto('/');
+  const content = '中文 ✨ </ScRiPt><script>alert(1)</script><!-- <script> & > "quoted"';
+  await page.getByLabel('文字內容', { exact: true }).fill(content);
+  const copyButton = page.getByRole('button', { name: '複製網站嵌入碼', exact: true });
+  await copyButton.click();
+  await expect(page.getByRole('status')).toContainText('已複製');
+  const copied = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, '\n');
+  expect(copied).toMatch(
+    /^<script id="discord:component-embed" type="application\/json">[\s\S]*<\/script>$/,
+  );
+  const embedded = await page.evaluate((code) => {
+    const doc = new DOMParser().parseFromString(
+      `<!doctype html><html><head>${code}</head><body><p>My website</p></body></html>`,
+      'text/html',
+    );
+    return {
+      scriptCount: doc.scripts.length,
+      payload: JSON.parse(doc.getElementById('discord:component-embed')!.textContent!),
+      body: doc.body.innerHTML,
+    };
+  }, copied);
+  expect(embedded.scriptCount).toBe(1);
+  expect(embedded.payload.component.components[0].content).toBe(content);
+  expect(embedded.body).toBe('<p>My website</p>');
+  await page.getByText('查看嵌入碼', { exact: true }).click();
+  const codeField = page.getByRole('textbox', { name: '網站嵌入碼', exact: true });
+  await expect(codeField).toHaveValue(copied);
+
+  // Self-hosted embeds only require valid components, not short-link metadata.
+  await page.locator('.settings-block').first().locator('summary').click();
+  await page.getByLabel('預覽標題', { exact: true }).fill('');
+  await expect(page.getByRole('button', { name: '生成短連結', exact: true })).toBeDisabled();
+  await expect(copyButton).toBeEnabled();
+  await page.getByRole('tab', { name: 'JSON', exact: true }).click();
+  const editor = page.getByRole('textbox', { name: 'Component JSON' });
+  expect(embedded.payload).toEqual(JSON.parse(await editor.inputValue()));
+  const payload = {
+    component: {
+      type: 17,
+      components: [
+        { type: 10, content: 'Latest JSON design' },
+        {
+          type: 12,
+          items: [{ media: { url: 'https://cdn.discordapp.com/attachments/test.png?ex=a&hm=b' } }],
+        },
+      ],
+    },
+  };
+  await editor.fill(JSON.stringify(payload));
+  await copyButton.click();
+  const updated = (await page.evaluate(() => navigator.clipboard.readText())).replace(
+    /\r\n/g,
+    '\n',
+  );
+  const match = /<script[^>]*>([\s\S]*)<\/script>/.exec(updated)!;
+  expect(JSON.parse(match[1])).toEqual({
+    component: {
+      ...payload.component,
+      components: [
+        payload.component.components[0],
+        {
+          type: 12,
+          items: [
+            {
+              media: {
+                url: 'https://dccdngen.avianjay.sbs/https://cdn.discordapp.com/attachments/test.png?ex=a&hm=b',
+              },
+            },
+          ],
+        },
+      ],
+    },
+  });
+  await expect(codeField).toHaveValue(updated);
+  for (const invalid of ['{broken', '{"component":{"type":17,"components":[]}}']) {
+    await editor.fill(invalid);
+    await expect(copyButton).toBeDisabled();
+    await expect(codeField).toHaveValue('');
+  }
+  await editor.fill(JSON.stringify(payload));
+  await page.getByRole('tab', { name: '視覺編輯', exact: true }).click();
+  await page.getByLabel('文字內容', { exact: true }).fill('');
+  await expect(copyButton).toBeDisabled();
+  await expect(codeField).toHaveValue('');
+});
+
+test('embed copy failure selects the code for manual copying on mobile in either language', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: async () => {
+          throw new Error('Clipboard unavailable');
+        },
+      },
+    });
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: '即時預覽', exact: true }).click();
+  await page.getByRole('button', { name: '複製網站嵌入碼', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('已選取嵌入碼');
+  await expect(page.getByRole('textbox', { name: '網站嵌入碼', exact: true })).toBeFocused();
+  await page.locator('.language-select select').selectOption('en');
+  await page.getByRole('button', { name: 'Copy website embed code', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('selected for manual copying');
+  const codeField = page.getByRole('textbox', { name: 'Website embed code', exact: true });
+  await expect(codeField).toBeFocused();
+  expect(
+    await codeField.evaluate((el: HTMLTextAreaElement) => ({
+      start: el.selectionStart,
+      end: el.selectionEnd,
+      length: el.value.length,
+    })),
+  ).toEqual({
+    start: 0,
+    end: (await codeField.inputValue()).length,
+    length: (await codeField.inputValue()).length,
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
 test('publish, crawl without JavaScript, copy, save manager link, update and delete', async ({
   page,
   context,

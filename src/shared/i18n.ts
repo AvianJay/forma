@@ -82,6 +82,13 @@ const zhHant = {
   'publish.publicPage': '公開展示頁',
   'publish.managementCredential': '附管理憑證',
   'publish.delete': '刪除此連結',
+  'embed.copy': '複製網站嵌入碼',
+  'embed.hint':
+    '不需生成短連結。將嵌入碼貼到自己網站 HTML 的 <head>，再把該頁網址分享到 Discord。嵌入碼需包含在伺服器回傳的 HTML 中。',
+  'embed.viewCode': '查看嵌入碼',
+  'embed.code': '網站嵌入碼',
+  'embed.invalid': '請先完成元件內容並修正 JSON 錯誤。',
+  'embed.copyFailed': '無法使用剪貼簿，已選取嵌入碼，請手動複製。',
   'tip.title': '設計小技巧',
   'tip.body': '加入醒目標題、配圖或按鈕，讓卡片更具吸引力。',
   'dialog.closeResult': '關閉發布結果',
@@ -289,6 +296,14 @@ const en: Record<MessageKey, string> = {
   'publish.publicPage': 'Public page',
   'publish.managementCredential': 'Management credential included',
   'publish.delete': 'Delete this link',
+  'embed.copy': 'Copy website embed code',
+  'embed.hint':
+    'No short link needed. Paste the code into your website’s HTML <head>, then share that page’s URL on Discord. Include the code in the HTML returned by your server.',
+  'embed.viewCode': 'View embed code',
+  'embed.code': 'Website embed code',
+  'embed.invalid': 'Complete the components and fix any JSON errors first.',
+  'embed.copyFailed':
+    'Clipboard access is unavailable. The embed code is selected for manual copying.',
   'tip.title': 'Design tip',
   'tip.body': 'Add a strong headline, image, or button to make your card more engaging.',
   'dialog.closeResult': 'Close publishing result',

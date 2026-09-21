@@ -38,10 +38,12 @@ import {
   MAX_BODY_BYTES,
   normalizeMediaUrl,
   type Child,
+  type Container,
   type Design,
   type Issue,
 } from '../shared/design';
 import { useI18n } from '../shared/I18nContext';
+import { renderComponentEmbed } from '../shared/embed';
 import { addLocaleParam, t as translate, type Locale } from '../shared/i18n';
 import { Preview } from '../shared/Preview';
 import { Check, ComponentFields, Field } from './Fields';
@@ -97,13 +99,15 @@ function readDraft(locale: Locale) {
     };
   }
 }
-function jsonIssues(raw: string, locale: Locale): Issue[] {
+function parseJson(raw: string, locale: Locale): { component?: Container; issues: Issue[] } {
   const { payloadSchema } = getLocalizedSchemas(locale);
   try {
     const result = payloadSchema.safeParse(JSON.parse(raw), localizedParseOptions(locale));
-    return result.success ? [] : issuesFrom(result.error);
+    return result.success
+      ? { component: result.data.component, issues: [] }
+      : { issues: issuesFrom(result.error) };
   } catch {
-    return [{ path: 'JSON', message: translate(locale, 'json.invalid') }];
+    return { issues: [{ path: 'JSON', message: translate(locale, 'json.invalid') }] };
   }
 }
 function download(text: string, filename: string, type = 'application/json') {
@@ -145,9 +149,15 @@ export function App({
   const fileInput = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const deleteRef = useRef<HTMLDialogElement>(null);
+  const embedDetailsRef = useRef<HTMLDetailsElement>(null);
+  const embedCodeRef = useRef<HTMLTextAreaElement>(null);
   const dirtyRef = useRef(false);
   const parsed = designSchema.safeParse(design, localizedParseOptions(locale));
-  const rawIssues = jsonIssues(raw, locale);
+  const { component: exportComponent, issues: rawIssues } = parseJson(raw, locale);
+  const embedScript =
+    !loading && !loadFailed && !deleted && exportComponent
+      ? renderComponentEmbed(exportComponent)
+      : '';
   const validation = [...(parsed.success ? [] : issuesFrom(parsed.error)), ...rawIssues].filter(
     (issue, i, list) =>
       list.findIndex((v) => v.path === issue.path && v.message === issue.message) === i,
@@ -275,13 +285,23 @@ export function App({
     });
     setSelected(design.component.components.length);
   }
-  async function copy(text: string) {
+  async function copy(text: string, onFailure?: () => void) {
     try {
       await navigator.clipboard.writeText(text);
       setToast(t('toast.copied'));
     } catch {
-      setToast(t('toast.copyFailed'));
+      if (onFailure) onFailure();
+      else setToast(t('toast.copyFailed'));
     }
+  }
+  function copyEmbed() {
+    if (!embedScript) return;
+    void copy(embedScript, () => {
+      if (embedDetailsRef.current) embedDetailsRef.current.open = true;
+      embedCodeRef.current?.focus();
+      embedCodeRef.current?.select();
+      setToast(t('embed.copyFailed'));
+    });
   }
   async function publish() {
     if (disabled || !parsed.success) return;
@@ -889,6 +909,30 @@ export function App({
                 <span>·</span>
                 <CheckIcon size={12} />
                 {t('publish.managementCredential')}
+              </div>
+              <div className="embed-export">
+                <button
+                  className="embed-copy-button"
+                  disabled={!embedScript || busy}
+                  onClick={copyEmbed}
+                >
+                  <Copy size={16} />
+                  {t('embed.copy')}
+                </button>
+                <p className="field-hint">{t('embed.hint')}</p>
+                <details ref={embedDetailsRef}>
+                  <summary>{t('embed.viewCode')}</summary>
+                  <textarea
+                    ref={embedCodeRef}
+                    aria-label={t('embed.code')}
+                    readOnly
+                    value={embedScript}
+                    placeholder={t('embed.invalid')}
+                    onFocus={(e) => e.target.select()}
+                    spellCheck={false}
+                    rows={7}
+                  />
+                </details>
               </div>
               {managerId && !deleted && (
                 <button

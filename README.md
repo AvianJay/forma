@@ -19,6 +19,7 @@ npm run dev
 - 文字與 Markdown、Section 搭配縮圖或連結按鈕、媒體相簿、分隔線、按鈕列、Container 色彩與 Spoiler。
 - 元件複製、刪除、上下排序、即時 Discord 模擬預覽、手機編輯／預覽頁籤。
 - JSON 即時驗證、匯入／匯出。草稿保存在目前瀏覽器；未完成的 JSON 會保留，重新載入後可繼續修正。
+- 預覽下方可直接「複製網站嵌入碼」，取得完整的 `<script id="discord:component-embed" type="application/json">…</script>`，不需生成短連結。將嵌入碼放進自己網站伺服器回傳 HTML 的 `<head>`，再分享該頁網址到 Discord。可展開查看與手動複製；修改設計後須重新複製並更新網站。
 - 完整支援繁體中文與英文介面；首次依瀏覽器語言選擇，手動切換後會記住偏好。切換語言不會改寫草稿或使用者建立的卡片內容。
 - 10 字元隨機短碼、永久有效（直到刪除）、公開展示頁、獨立的私人管理連結。
 - 首頁本身也有 Components V2 與 Open Graph 預覽，直接把首頁網址貼到 Discord 就能介紹網站。

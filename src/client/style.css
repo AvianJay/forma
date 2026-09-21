@@ -916,6 +916,42 @@ fieldset {
   margin: 0 7px;
   color: #56614d;
 }
+.embed-export {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #3a4630;
+  text-align: left;
+}
+.embed-copy-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid #586943;
+  border-radius: 7px;
+  background: #273120;
+  color: #c0df9f;
+  font-size: 12px;
+}
+.embed-copy-button:hover {
+  background: #334126;
+}
+.embed-export .field-hint {
+  margin: 10px 0;
+}
+.embed-export summary {
+  cursor: pointer;
+  color: #b5c7a2;
+  font-size: 11px;
+}
+.embed-export textarea {
+  margin-top: 10px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.7;
+}
 .tip {
   display: flex;
   gap: 10px;

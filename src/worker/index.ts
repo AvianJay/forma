@@ -8,6 +8,7 @@ import {
   type Design,
 } from '../shared/design';
 import { I18nProvider } from '../shared/I18nContext';
+import { renderComponentEmbed } from '../shared/embed';
 import {
   addLocaleParam,
   DEFAULT_LOCALE,
@@ -150,13 +151,9 @@ export function renderMetadata(
   url: string,
   type: 'article' | 'website' = 'article',
 ): string {
-  const payload = JSON.stringify({ component: design.component })
-    .replaceAll('<', '\\u003c')
-    .replaceAll('>', '\\u003e')
-    .replaceAll('&', '\\u0026');
   return `<meta property="og:title" content="${htmlEscape(design.title)}"><meta property="og:description" content="${htmlEscape(design.description)}"><meta property="og:url" content="${htmlEscape(url)}"><meta property="og:type" content="${type}">
 ${design.image ? `<meta property="og:image" content="${htmlEscape(design.image)}">` : ''}<meta name="twitter:card" content="${design.image ? 'summary_large_image' : 'summary'}">
-<script id="discord:component-embed" type="application/json">${payload}</script>`;
+${renderComponentEmbed(design.component)}`;
 }
 
 export function renderPage(design: Design, url: string, locale: Locale = DEFAULT_LOCALE): string {
