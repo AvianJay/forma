@@ -19,6 +19,7 @@ npm run dev
 - 文字與 Markdown、Section 搭配縮圖或連結按鈕、媒體相簿、分隔線、按鈕列、Container 色彩與 Spoiler。
 - 元件複製、刪除、上下排序、即時 Discord 模擬預覽、手機編輯／預覽頁籤。
 - JSON 即時驗證、匯入／匯出。草稿保存在目前瀏覽器；未完成的 JSON 會保留，重新載入後可繼續修正。
+- 完整支援繁體中文與英文介面；首次依瀏覽器語言選擇，手動切換後會記住偏好。切換語言不會改寫草稿或使用者建立的卡片內容。
 - 10 字元隨機短碼、永久有效（直到刪除）、公開展示頁、獨立的私人管理連結。
 - 首頁本身也有 Components V2 與 Open Graph 預覽，直接把首頁網址貼到 Discord 就能介紹網站。
 - 縮圖、相簿和 Open Graph 封面內，符合 `https://cdn.discordapp.com/attachments/*` 的網址會自動變成：
@@ -52,6 +53,8 @@ npm run deploy
 ## HTTP API
 
 所有 API 與公開短連結頁面回傳 `Cache-Control: no-store`。寫入只接受同源瀏覽器請求（無 Origin 的 API client 亦可），並以 Workers Rate Limiting binding 限制每 IP 每 60 秒 10 次操作；Cloudflare 計數為每位置的最佳努力限流，並非全球嚴格配額。公開讀取不套用寫入限流。
+
+網頁與 API 可使用選填的 `?lang=en` 或 `?lang=zh-Hant` 指定產品介面及錯誤訊息語言；未指定時依 locale cookie 與 `Accept-Language` 決定。成功回應資料、卡片內容與公開／管理 URL 格式不受語言影響。
 
 | 方法與路徑 | 說明 |
 |---|---|

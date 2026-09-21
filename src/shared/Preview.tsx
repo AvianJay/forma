@@ -2,9 +2,10 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { isHttpUrl, normalizeMediaUrl, type Button, type Child, type Container } from './design';
+import { useI18n } from './I18nContext';
 
 type MdNode = { type: string; value?: string; children?: MdNode[]; data?: Record<string, unknown> };
-function remarkSpoilers() {
+function remarkSpoilers(revealTitle: string) {
   return (tree: MdNode) => {
     const visit = (node: MdNode) => {
       if (!node.children) return;
@@ -25,7 +26,7 @@ function remarkSpoilers() {
                     hProperties: {
                       className: 'text-spoiler',
                       tabIndex: 0,
-                      title: '點擊或聚焦以顯示',
+                      title: revealTitle,
                     },
                   },
                   children: [{ type: 'text', value: value.slice(2, -2) }],
@@ -39,9 +40,10 @@ function remarkSpoilers() {
 }
 
 function Spoiler({ hidden, children }: { hidden?: boolean; children: ReactNode }) {
+  const { t } = useI18n();
   return hidden ? (
     <details className="spoiler">
-      <summary>點擊顯示隱藏內容</summary>
+      <summary>{t('preview.reveal')}</summary>
       {children}
     </details>
   ) : (
@@ -58,17 +60,22 @@ function Media({
   description?: string | null;
   thumbnail?: boolean;
 }) {
+  const { t } = useI18n();
   const [failed, setFailed] = useState(false);
   const normalized = normalizeMediaUrl(url);
   const video = !thumbnail && /\.(mp4|mov|webm)(?:[?#]|$)/i.test(normalized);
   if (!isHttpUrl(normalized))
-    return <div className="media-placeholder">{thumbnail ? '縮圖' : '加入媒體網址'}</div>;
+    return (
+      <div className="media-placeholder">
+        {thumbnail ? t('preview.thumbnail') : t('preview.addMediaUrl')}
+      </div>
+    );
   if (failed)
     return (
       <div className="media-placeholder">
-        媒體無法載入
+        {t('preview.mediaFailed')}
         <a href={normalized} target="_blank" rel="noreferrer">
-          開啟原始網址 ↗
+          {t('preview.openOriginal')}
         </a>
       </div>
     );
@@ -78,13 +85,13 @@ function Media({
       controls
       playsInline
       preload="metadata"
-      aria-label={description || '影片'}
+      aria-label={description || t('preview.video')}
       onError={() => setFailed(true)}
     />
   ) : (
     <img
       src={normalized}
-      alt={description || (thumbnail ? '縮圖' : '相簿圖片')}
+      alt={description || (thumbnail ? t('preview.thumbnail') : t('preview.galleryImage'))}
       loading="lazy"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
@@ -119,10 +126,11 @@ function LinkButton({ button }: { button: Button }) {
 }
 
 function TextContent({ content }: { content: string }) {
+  const { t } = useI18n();
   return (
     <div className="discord-markdown">
       <Markdown
-        remarkPlugins={[remarkGfm, remarkSpoilers]}
+        remarkPlugins={[remarkGfm, [remarkSpoilers, t('preview.revealTitle')]]}
         skipHtml
         urlTransform={(value) => (isHttpUrl(value) ? value : '')}
         components={{

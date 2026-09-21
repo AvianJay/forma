@@ -1,6 +1,7 @@
 import { cloneElement, isValidElement, useId, type ReactElement, type ReactNode } from 'react';
 import { Plus, X } from 'lucide-react';
 import { normalizeMediaUrl, type Button, type Child, type Thumbnail } from '../shared/design';
+import { useI18n } from '../shared/I18nContext';
 
 export function Field({
   label,
@@ -48,14 +49,15 @@ export function Check({
 function UrlField({
   value,
   onChange,
-  label = '媒體網址',
+  label,
 }: {
   value: string;
   onChange: (value: string) => void;
   label?: string;
 }) {
+  const { t } = useI18n();
   return (
-    <Field label={label} hint="cdn.discordapp.com 的 attachments 網址會自動加上指定的媒體前綴。">
+    <Field label={label || t('field.mediaUrl')} hint={t('field.mediaPrefixHint')}>
       <input
         type="url"
         value={value}
@@ -73,17 +75,18 @@ function ButtonFields({
   button: Button;
   onChange: (button: Button) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="field-stack">
-      <Field label="按鈕文字">
+      <Field label={t('field.buttonText')}>
         <input
           value={button.label || ''}
-          placeholder="開啟連結"
+          placeholder={t('field.openLink')}
           maxLength={80}
           onChange={(e) => onChange({ ...button, label: e.target.value || undefined })}
         />
       </Field>
-      <Field label="目的網址">
+      <Field label={t('field.destinationUrl')}>
         <input
           type="url"
           value={button.url}
@@ -92,12 +95,12 @@ function ButtonFields({
         />
       </Field>
       <details className="sub-options">
-        <summary>Emoji 與按鈕選項</summary>
+        <summary>{t('field.emojiOptions')}</summary>
         <div className="field-stack">
           <Field label="Emoji">
             <input
               value={button.emoji?.name || ''}
-              placeholder="例如：✨"
+              placeholder={t('field.emojiExample')}
               onChange={(e) =>
                 onChange({
                   ...button,
@@ -109,11 +112,11 @@ function ButtonFields({
               }
             />
           </Field>
-          <Field label="自訂 Emoji ID">
+          <Field label={t('field.customEmojiId')}>
             <input
               inputMode="numeric"
               value={button.emoji?.id || ''}
-              placeholder="選填 Discord emoji ID"
+              placeholder={t('field.customEmojiPlaceholder')}
               onChange={(e) =>
                 onChange({
                   ...button,
@@ -127,13 +130,13 @@ function ButtonFields({
           </Field>
           {button.emoji?.id && (
             <Check
-              label="動態 Emoji"
+              label={t('field.animatedEmoji')}
               checked={button.emoji.animated}
               onChange={(animated) => onChange({ ...button, emoji: { ...button.emoji, animated } })}
             />
           )}
           <Check
-            label="停用按鈕"
+            label={t('field.disableButton')}
             checked={button.disabled}
             onChange={(disabled) => onChange({ ...button, disabled })}
           />
@@ -149,14 +152,15 @@ function ThumbnailFields({
   thumbnail: Thumbnail;
   onChange: (value: Thumbnail) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="field-stack">
       <UrlField
-        label="縮圖網址"
+        label={t('field.thumbnailUrl')}
         value={thumbnail.media.url}
         onChange={(url) => onChange({ ...thumbnail, media: { url } })}
       />
-      <Field label="圖片替代文字">
+      <Field label={t('field.imageAlt')}>
         <input
           value={thumbnail.description || ''}
           maxLength={1024}
@@ -164,7 +168,7 @@ function ThumbnailFields({
         />
       </Field>
       <Check
-        label="隱藏縮圖（Spoiler）"
+        label={t('field.thumbnailSpoiler')}
         checked={thumbnail.spoiler}
         onChange={(spoiler) => onChange({ ...thumbnail, spoiler })}
       />
@@ -179,10 +183,11 @@ export function ComponentFields({
   component: Child;
   onChange: (component: Child) => void;
 }) {
+  const { t } = useI18n();
   switch (component.type) {
     case 10:
       return (
-        <Field label="文字內容" hint="支援 Markdown：標題、粗體、清單、連結與 ||隱藏文字||。">
+        <Field label={t('field.textContent')} hint={t('field.markdownHint')}>
           <textarea
             className="content-input"
             value={component.content}
@@ -196,17 +201,17 @@ export function ComponentFields({
       return (
         <div className="field-stack">
           <Check
-            label="顯示分隔線"
+            label={t('field.showDivider')}
             checked={component.divider !== false}
             onChange={(divider) => onChange({ ...component, divider })}
           />
-          <Field label="上下間距">
+          <Field label={t('field.spacing')}>
             <select
               value={component.spacing || 1}
               onChange={(e) => onChange({ ...component, spacing: Number(e.target.value) as 1 | 2 })}
             >
-              <option value={1}>小間距</option>
-              <option value={2}>大間距</option>
+              <option value={1}>{t('field.spacingSmall')}</option>
+              <option value={2}>{t('field.spacingLarge')}</option>
             </select>
           </Field>
         </div>
@@ -216,10 +221,10 @@ export function ComponentFields({
         <div className="field-stack">
           {component.components.map((button, i) => (
             <fieldset className="nested" key={i}>
-              <legend>按鈕 {i + 1}</legend>
+              <legend>{t('field.buttonLegend', { index: i + 1 })}</legend>
               <button
                 className="remove-nested icon-button"
-                aria-label={`刪除按鈕 ${i + 1}`}
+                aria-label={t('field.deleteButton', { index: i + 1 })}
                 disabled={component.components.length === 1}
                 onClick={() =>
                   onChange({
@@ -249,13 +254,13 @@ export function ComponentFields({
                 ...component,
                 components: [
                   ...component.components,
-                  { type: 2, style: 5, label: '開啟連結', url: 'https://example.com' },
+                  { type: 2, style: 5, label: t('field.openLink'), url: 'https://example.com' },
                 ],
               })
             }
           >
             <Plus size={14} />
-            新增按鈕 <span>{component.components.length}/5</span>
+            {t('field.addButton')} <span>{component.components.length}/5</span>
           </button>
         </div>
       );
@@ -264,7 +269,7 @@ export function ComponentFields({
         <div className="field-stack">
           {component.components.map((text, i) => (
             <div className="nested text-nested" key={i}>
-              <Field label={`區塊文字 ${i + 1}`}>
+              <Field label={t('field.sectionText', { index: i + 1 })}>
                 <textarea
                   rows={3}
                   value={text.content}
@@ -288,7 +293,7 @@ export function ComponentFields({
                     })
                   }
                 >
-                  移除此段
+                  {t('field.removeParagraph')}
                 </button>
               )}
             </div>
@@ -299,14 +304,17 @@ export function ComponentFields({
             onClick={() =>
               onChange({
                 ...component,
-                components: [...component.components, { type: 10, content: '新的文字段落' }],
+                components: [
+                  ...component.components,
+                  { type: 10, content: t('starter.paragraph') },
+                ],
               })
             }
           >
             <Plus size={14} />
-            新增段落 <span>{component.components.length}/3</span>
+            {t('field.addParagraph')} <span>{component.components.length}/3</span>
           </button>
-          <Field label="旁側配件">
+          <Field label={t('field.accessory')}>
             <select
               value={component.accessory.type}
               onChange={(e) =>
@@ -315,12 +323,17 @@ export function ComponentFields({
                   accessory:
                     e.target.value === '11'
                       ? { type: 11, media: { url: '' } }
-                      : { type: 2, style: 5, label: '了解更多', url: 'https://example.com' },
+                      : {
+                          type: 2,
+                          style: 5,
+                          label: t('starter.learnMore'),
+                          url: 'https://example.com',
+                        },
                 })
               }
             >
-              <option value={11}>縮圖</option>
-              <option value={2}>連結按鈕</option>
+              <option value={11}>{t('field.thumbnail')}</option>
+              <option value={2}>{t('field.linkButton')}</option>
             </select>
           </Field>
           {component.accessory.type === 11 ? (
@@ -341,10 +354,10 @@ export function ComponentFields({
         <div className="field-stack">
           {component.items.map((item, i) => (
             <fieldset className="nested" key={i}>
-              <legend>媒體 {i + 1}</legend>
+              <legend>{t('field.mediaLegend', { index: i + 1 })}</legend>
               <button
                 className="remove-nested icon-button"
-                aria-label={`刪除媒體 ${i + 1}`}
+                aria-label={t('field.deleteMedia', { index: i + 1 })}
                 disabled={component.items.length === 1}
                 onClick={() =>
                   onChange({ ...component, items: component.items.filter((_, n) => n !== i) })
@@ -364,7 +377,7 @@ export function ComponentFields({
                     })
                   }
                 />
-                <Field label="媒體替代文字">
+                <Field label={t('field.mediaAlt')}>
                   <input
                     value={item.description || ''}
                     maxLength={1024}
@@ -379,7 +392,7 @@ export function ComponentFields({
                   />
                 </Field>
                 <Check
-                  label="隱藏媒體（Spoiler）"
+                  label={t('field.mediaSpoiler')}
                   checked={item.spoiler}
                   onChange={(spoiler) =>
                     onChange({
@@ -399,11 +412,9 @@ export function ComponentFields({
             }
           >
             <Plus size={14} />
-            新增圖片或影片 <span>{component.items.length}/10</span>
+            {t('field.addMedia')} <span>{component.items.length}/10</span>
           </button>
-          <p className="field-hint">
-            圖片：PNG、GIF、JPEG、WebP、AVIF。影片：MP4、MOV、WebM。網址需公開可讀。
-          </p>
+          <p className="field-hint">{t('field.mediaFormats')}</p>
         </div>
       );
   }

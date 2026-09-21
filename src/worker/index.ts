@@ -1,6 +1,22 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { designSchema, issuesFrom, MAX_BODY_BYTES, type Design } from '../shared/design';
+import {
+  getLocalizedSchemas,
+  issuesFrom,
+  localizedParseOptions,
+  MAX_BODY_BYTES,
+  type Design,
+} from '../shared/design';
+import { I18nProvider } from '../shared/I18nContext';
+import {
+  addLocaleParam,
+  DEFAULT_LOCALE,
+  localeCookie,
+  parseLocaleParam,
+  resolveLocale,
+  t,
+  type Locale,
+} from '../shared/i18n';
 import { Preview } from '../shared/Preview';
 import previewStyles from '../shared/preview.css?inline';
 import { homepageDesign } from '../shared/homepage';
@@ -24,8 +40,18 @@ const commonHeaders = {
   'Referrer-Policy': 'no-referrer',
   'X-Frame-Options': 'DENY',
 };
-const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-  Response.json(body, { status, headers: { ...commonHeaders, ...headers } });
+const localizedHeaders = (locale: Locale, headers: Record<string, string> = {}) => ({
+  ...commonHeaders,
+  'Content-Language': locale,
+  Vary: 'Accept-Language, Cookie',
+  ...headers,
+});
+const json = (
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+  locale: Locale = DEFAULT_LOCALE,
+) => Response.json(body, { status, headers: localizedHeaders(locale, headers) });
 
 export function shortId(): string {
   const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -78,11 +104,11 @@ class RequestError extends Error {
     super(message);
   }
 }
-async function readDesign(request: Request) {
+async function readDesign(request: Request, locale: Locale) {
   if (!request.headers.get('Content-Type')?.toLowerCase().startsWith('application/json'))
-    throw new RequestError('請使用 application/json');
+    throw new RequestError(t(locale, 'api.contentType'));
   const reader = request.body?.getReader();
-  if (!reader) throw new RequestError('請提供設計 JSON');
+  if (!reader) throw new RequestError(t(locale, 'api.designRequired'));
   let total = 0;
   const chunks: Uint8Array[] = [];
   try {
@@ -92,7 +118,7 @@ async function readDesign(request: Request) {
       total += value.byteLength;
       if (total > MAX_BODY_BYTES) {
         await reader.cancel();
-        throw new RequestError('內容不可超過 64 KiB', 413);
+        throw new RequestError(t(locale, 'api.bodyTooLarge'), 413);
       }
       chunks.push(value);
     }
@@ -108,7 +134,7 @@ async function readDesign(request: Request) {
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(body));
   } catch {
-    throw new RequestError('JSON 格式錯誤');
+    throw new RequestError(t(locale, 'api.badJson'));
   }
 }
 
@@ -133,20 +159,30 @@ ${design.image ? `<meta property="og:image" content="${htmlEscape(design.image)}
 <script id="discord:component-embed" type="application/json">${payload}</script>`;
 }
 
-export function renderPage(design: Design, url: string): string {
-  const content = renderToStaticMarkup(createElement(Preview, { component: design.component }));
+export function renderPage(design: Design, url: string, locale: Locale = DEFAULT_LOCALE): string {
+  const content = renderToStaticMarkup(
+    createElement(
+      I18nProvider,
+      { locale },
+      createElement(Preview, { component: design.component }),
+    ),
+  );
   const title = htmlEscape(design.title);
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Forma</title>
+  const path = new URL(url).pathname;
+  const zhUrl = path + '?lang=zh-Hant';
+  const enUrl = path + '?lang=en';
+  const homeUrl = addLocaleParam('/', locale);
+  return `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} · Forma</title>
 ${renderMetadata(design, url)}<link rel="icon" href="/favicon.svg"><style>${previewStyles}
-*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101113;color:#f1f1f3;font-family:system-ui,sans-serif;padding:48px 20px}main{max-width:560px;margin:60px auto}header{display:flex;gap:10px;align-items:center;font-weight:700;letter-spacing:-.5px}header img{width:30px;height:30px}.user-content-notice{margin-bottom:16px;padding:10px 12px;border:1px solid #34363d;border-radius:8px;background:#191a1f;color:#a6a8af;font-size:12px;line-height:1.5}footer{margin-top:24px;font-size:12px;color:#8d8f97}footer a{color:#bef264}h1{font-size:14px;color:#a6a8af;margin-bottom:20px}</style><script src="/media-fallback.js" defer></script></head>
-<body><header><img src="/favicon.svg" alt="">forma<span style="font-weight:400;color:#737780">/ 卡片預覽</span></header><main><aside class="user-content-notice" role="note">此頁面內容由使用者建立。</aside><h1>${title}</h1>${content}<footer>使用 <a href="/">Forma</a> 製作。</footer></main></body></html>`;
+*{box-sizing:border-box}body{margin:0;min-height:100vh;background:#101113;color:#f1f1f3;font-family:system-ui,sans-serif;padding:48px 20px}main{max-width:560px;margin:60px auto}header{display:flex;gap:10px;align-items:center;font-weight:700;letter-spacing:-.5px}header img{width:30px;height:30px}.language-nav{margin-left:auto;display:flex;gap:8px;font-size:12px}.language-nav a{color:#8d8f97}.language-nav a[aria-current="true"]{color:#bef264}.user-content-notice{margin-bottom:16px;padding:10px 12px;border:1px solid #34363d;border-radius:8px;background:#191a1f;color:#a6a8af;font-size:12px;line-height:1.5}footer{margin-top:24px;font-size:12px;color:#8d8f97}footer a{color:#bef264}h1{font-size:14px;color:#a6a8af;margin-bottom:20px}</style><script src="/media-fallback.js" defer></script></head>
+<body><header><img src="/favicon.svg" alt="">forma<span style="font-weight:400;color:#737780">/ ${htmlEscape(t(locale, 'public.preview'))}</span><nav class="language-nav" aria-label="${htmlEscape(t(locale, 'language.label'))}"><a href="${zhUrl}" aria-current="${locale === 'zh-Hant'}">${htmlEscape(t(locale, 'language.zhHant'))}</a><a href="${enUrl}" aria-current="${locale === 'en'}">${htmlEscape(t(locale, 'language.en'))}</a></nav></header><main><aside class="user-content-notice" role="note">${htmlEscape(t(locale, 'public.userNotice'))}</aside><h1>${title}</h1>${content}<footer>${htmlEscape(t(locale, 'public.madeWithBefore'))} <a href="${homeUrl}">Forma</a>${htmlEscape(t(locale, 'public.madeWithAfter'))}</footer></main></body></html>`;
 }
 
-function html(body: string, status = 200) {
+function html(body: string, status = 200, locale: Locale = DEFAULT_LOCALE) {
   return new Response(body, {
     status,
     headers: {
-      ...commonHeaders,
+      ...localizedHeaders(locale),
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Security-Policy':
         "default-src 'none'; img-src http: https:; media-src http: https:; style-src 'unsafe-inline'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
@@ -154,24 +190,65 @@ function html(body: string, status = 200) {
   });
 }
 
-async function handle(request: Request, env: Env): Promise<Response> {
+function localizeIndexHtml(source: string, locale: Locale): string {
+  return source
+    .replace(/<html lang="[^"]*">/i, '<html lang="' + locale + '">')
+    .replace(
+      /<title>[\s\S]*?<\/title>/i,
+      '<title>' + htmlEscape(t(locale, 'meta.title')) + '</title>',
+    )
+    .replace(
+      /<meta name="description" content="[^"]*"\s*\/?>/i,
+      '<meta name="description" content="' + htmlEscape(t(locale, 'meta.description')) + '" />',
+    );
+}
+
+function renderNotFound(locale: Locale): string {
+  const title = htmlEscape(t(locale, 'public.notFoundTitle'));
+  const body = htmlEscape(t(locale, 'public.notFoundBody'));
+  const link = htmlEscape(t(locale, 'public.createNew'));
+  const home = addLocaleParam('/', locale);
+  return (
+    '<!doctype html><html lang="' +
+    locale +
+    '"><meta charset="utf-8"><title>' +
+    title +
+    '</title><h1>' +
+    body +
+    '</h1><a href="' +
+    home +
+    '">' +
+    link +
+    '</a></html>'
+  );
+}
+
+async function handle(request: Request, env: Env, locale: Locale): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname;
   const isApi = path === '/api' || path.startsWith('/api/');
   const isPage = path === '/s' || path.startsWith('/s/');
+  const { designSchema } = getLocalizedSchemas(locale);
+  const parseOptions = localizedParseOptions(locale);
   if ((path === '/' || path === '/index.html') && ['GET', 'HEAD'].includes(request.method)) {
     const asset = await env.ASSETS.fetch(new Request(request, { method: 'GET' }));
     if (!asset.ok || !asset.headers.get('Content-Type')?.includes('text/html')) return asset;
     const source = await asset.text();
-    const metadata = renderMetadata(homepageDesign(url.origin), `${url.origin}/`, 'website');
+    const metadata = renderMetadata(
+      homepageDesign(url.origin, locale),
+      `${url.origin}/`,
+      'website',
+    );
     const headers = new Headers(asset.headers);
     for (const name of ['Content-Length', 'Content-Encoding', 'ETag', 'Last-Modified'])
       headers.delete(name);
-    for (const [name, value] of Object.entries(commonHeaders)) headers.set(name, value);
+    for (const [name, value] of Object.entries(localizedHeaders(locale))) headers.set(name, value);
     // This is our own Vite-built HTML template, not user-supplied markup. Preserve all
     // editor scripts/styles while adding crawler-readable metadata to the real response.
     return new Response(
-      request.method === 'HEAD' ? null : source.replace(/<\/head>/i, () => `${metadata}</head>`),
+      request.method === 'HEAD'
+        ? null
+        : localizeIndexHtml(source, locale).replace(/<\/head>/i, () => `${metadata}</head>`),
       { status: asset.status, headers },
     );
   }
@@ -181,15 +258,13 @@ async function handle(request: Request, env: Env): Promise<Response> {
   const create = path === '/api/links' && request.method === 'POST';
   if (!create && !publicMatch && !itemMatch)
     return isApi
-      ? json({ error: '找不到此連結' }, 404)
-      : html(
-          '<!doctype html><meta charset="utf-8"><title>找不到連結</title><h1>連結不存在或已被刪除</h1><a href="/">建立新連結</a>',
-          404,
-        );
+      ? json({ error: t(locale, 'api.notFound') }, 404, {}, locale)
+      : html(renderNotFound(locale), 404, locale);
   const write = create || (!!itemMatch && ['PUT', 'DELETE'].includes(request.method));
   if (write) {
     const origin = request.headers.get('Origin');
-    if (origin && origin !== url.origin) return json({ error: '不允許跨網站寫入' }, 403);
+    if (origin && origin !== url.origin)
+      return json({ error: t(locale, 'api.crossOrigin') }, 403, {}, locale);
     if (!env.WRITE_LIMITER || typeof env.WRITE_LIMITER.limit !== 'function') {
       throw new ServiceConfigurationError('rate_limiter_binding_missing');
     }
@@ -197,12 +272,17 @@ async function handle(request: Request, env: Env): Promise<Response> {
       key: request.headers.get('CF-Connecting-IP') || 'local-development',
     });
     if (!success)
-      return json({ error: '操作太頻繁，請在一分鐘後再試' }, 429, { 'Retry-After': '60' });
+      return json({ error: t(locale, 'api.rateLimit') }, 429, { 'Retry-After': '60' }, locale);
   }
   if (create) {
-    const parsed = designSchema.safeParse(await readDesign(request));
+    const parsed = designSchema.safeParse(await readDesign(request, locale), parseOptions);
     if (!parsed.success)
-      return json({ error: '設計內容有誤', issues: issuesFrom(parsed.error) }, 400);
+      return json(
+        { error: t(locale, 'api.invalidDesign'), issues: issuesFrom(parsed.error) },
+        400,
+        {},
+        locale,
+      );
     const link = await createLink(env.DB, parsed.data);
     return json(
       {
@@ -212,6 +292,8 @@ async function handle(request: Request, env: Env): Promise<Response> {
         createdAt: link.createdAt,
       },
       201,
+      {},
+      locale,
     );
   }
   const id = (publicMatch || itemMatch)![1];
@@ -220,63 +302,91 @@ async function handle(request: Request, env: Env): Promise<Response> {
   );
   if (!row)
     return isApi
-      ? json({ error: '找不到此連結' }, 404)
-      : html(
-          '<!doctype html><meta charset="utf-8"><title>找不到連結</title><h1>連結不存在或已被刪除</h1><a href="/">建立新連結</a>',
-          404,
-        );
+      ? json({ error: t(locale, 'api.notFound') }, 404, {}, locale)
+      : html(renderNotFound(locale), 404, locale);
   if (request.method === 'GET' || request.method === 'HEAD') {
     const design = JSON.parse(row.design_json) as Design;
     const response = publicMatch
-      ? html(renderPage(design, `${url.origin}/s/${id}`))
-      : json({ id, design, createdAt: row.created_at, updatedAt: row.updated_at });
+      ? html(renderPage(design, `${url.origin}/s/${id}`, locale), 200, locale)
+      : json({ id, design, createdAt: row.created_at, updatedAt: row.updated_at }, 200, {}, locale);
     return request.method === 'HEAD'
       ? new Response(null, { status: response.status, headers: response.headers })
       : response;
   }
   if (publicMatch || !['PUT', 'DELETE'].includes(request.method))
-    return json({ error: '不支援此操作' }, 405, {
-      Allow: publicMatch ? 'GET, HEAD' : 'GET, HEAD, PUT, DELETE',
-    });
+    return json(
+      { error: t(locale, 'api.unsupported') },
+      405,
+      { Allow: publicMatch ? 'GET, HEAD' : 'GET, HEAD, PUT, DELETE' },
+      locale,
+    );
   const token = request.headers.get('Authorization')?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
   if (!token || (await hashToken(token)) !== row.token_hash)
-    return json({ error: '管理密鑰無效，請使用完整的私人管理連結' }, 401);
+    return json({ error: t(locale, 'api.invalidToken') }, 401, {}, locale);
   if (request.method === 'DELETE') {
     await env.DB.prepare('DELETE FROM links WHERE id = ?').bind(id).run();
-    return new Response(null, { status: 204, headers: commonHeaders });
+    return new Response(null, { status: 204, headers: localizedHeaders(locale) });
   }
-  const parsed = designSchema.safeParse(await readDesign(request));
+  const parsed = designSchema.safeParse(await readDesign(request, locale), parseOptions);
   if (!parsed.success)
-    return json({ error: '設計內容有誤', issues: issuesFrom(parsed.error) }, 400);
+    return json(
+      { error: t(locale, 'api.invalidDesign'), issues: issuesFrom(parsed.error) },
+      400,
+      {},
+      locale,
+    );
   const updatedAt = new Date().toISOString();
   const result = await env.DB.prepare(
     'UPDATE links SET design_json = ?, updated_at = ? WHERE id = ?',
   )
     .bind(JSON.stringify(parsed.data), updatedAt, id)
     .run();
-  if (!result.meta.changes) return json({ error: '找不到此連結' }, 404);
-  return json({ id, url: `${url.origin}/s/${id}`, updatedAt });
+  if (!result.meta.changes) return json({ error: t(locale, 'api.notFound') }, 404, {}, locale);
+  return json({ id, url: `${url.origin}/s/${id}`, updatedAt }, 200, {}, locale);
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
+    const locale = resolveLocale({
+      query: url.searchParams.get('lang'),
+      cookie: request.headers.get('Cookie'),
+      acceptLanguage: request.headers.get('Accept-Language'),
+    });
+    let response: Response;
     try {
-      return await handle(request, env);
+      response = await handle(request, env, locale);
     } catch (error) {
-      if (error instanceof RequestError) return json({ error: error.message }, error.status);
-      if (error instanceof ServiceConfigurationError) {
+      if (error instanceof RequestError) {
+        response = json({ error: error.message }, error.status, {}, locale);
+      } else if (error instanceof ServiceConfigurationError) {
         console.error('Link service configuration error', { category: error.code });
-        return json({ error: error.message, code: error.code }, 503);
+        response = json(
+          { error: t(locale, 'api.serviceConfig'), code: error.code },
+          503,
+          {},
+          locale,
+        );
+      } else {
+        // Never log request bodies, authorization headers, or generated management URLs.
+        console.error('Link request failed', {
+          method: request.method,
+          category:
+            error instanceof Error && /D1_ERROR/.test(error.message)
+              ? 'database_error'
+              : 'internal_error',
+        });
+        response = json({ error: t(locale, 'api.unavailable') }, 500, {}, locale);
       }
-      // Never log request bodies, authorization headers, or generated management URLs.
-      console.error('Link request failed', {
-        method: request.method,
-        category:
-          error instanceof Error && /D1_ERROR/.test(error.message)
-            ? 'database_error'
-            : 'internal_error',
-      });
-      return json({ error: '服務暫時無法處理，請稍後再試' }, 500);
     }
+    const explicit = parseLocaleParam(url.searchParams.get('lang'));
+    if (!explicit) return response;
+    const headers = new Headers(response.headers);
+    headers.append('Set-Cookie', localeCookie(explicit));
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   },
 };

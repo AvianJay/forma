@@ -27,20 +27,22 @@ import {
   X,
 } from 'lucide-react';
 import {
-  childNames,
+  childName,
   countComponents,
   createChild,
-  designSchema,
+  createInitialDesign,
   draftDesignSchema,
-  initialDesign,
+  getLocalizedSchemas,
   issuesFrom,
+  localizedParseOptions,
   MAX_BODY_BYTES,
   normalizeMediaUrl,
-  payloadSchema,
   type Child,
   type Design,
   type Issue,
 } from '../shared/design';
+import { useI18n } from '../shared/I18nContext';
+import { addLocaleParam, t as translate, type Locale } from '../shared/i18n';
 import { Preview } from '../shared/Preview';
 import { Check, ComponentFields, Field } from './Fields';
 
@@ -57,7 +59,8 @@ const managerId = /^\/manage\/([A-Za-z0-9]{10})$/.exec(location.pathname)?.[1];
 const managerToken = managerId
   ? new URLSearchParams(location.hash.slice(1)).get('token') || ''
   : '';
-function readDraft() {
+function readDraft(locale: Locale) {
+  const initialDesign = createInitialDesign(locale);
   if (managerId)
     return {
       design: structuredClone(initialDesign),
@@ -94,12 +97,13 @@ function readDraft() {
     };
   }
 }
-function jsonIssues(raw: string): Issue[] {
+function jsonIssues(raw: string, locale: Locale): Issue[] {
+  const { payloadSchema } = getLocalizedSchemas(locale);
   try {
-    const result = payloadSchema.safeParse(JSON.parse(raw));
+    const result = payloadSchema.safeParse(JSON.parse(raw), localizedParseOptions(locale));
     return result.success ? [] : issuesFrom(result.error);
   } catch {
-    return [{ path: 'JSON', message: 'JSON 格式有誤，請檢查括號、逗號與引號。' }];
+    return [{ path: 'JSON', message: translate(locale, 'json.invalid') }];
   }
 }
 function download(text: string, filename: string, type = 'application/json') {
@@ -111,8 +115,16 @@ function download(text: string, filename: string, type = 'application/json') {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function App() {
-  const [draft] = useState(readDraft);
+export function App({
+  locale,
+  onLocaleChange,
+}: {
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
+}) {
+  const { t } = useI18n();
+  const { designSchema, payloadSchema } = getLocalizedSchemas(locale);
+  const [draft] = useState(() => readDraft(locale));
   const [design, setDesign] = useState<Design>(draft.design);
   const [raw, setRaw] = useState(draft.raw);
   const [mode, setMode] = useState<'visual' | 'json'>(draft.mode);
@@ -134,15 +146,15 @@ export function App() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const deleteRef = useRef<HTMLDialogElement>(null);
   const dirtyRef = useRef(false);
-  const parsed = designSchema.safeParse(design);
-  const rawIssues = jsonIssues(raw);
+  const parsed = designSchema.safeParse(design, localizedParseOptions(locale));
+  const rawIssues = jsonIssues(raw, locale);
   const validation = [...(parsed.success ? [] : issuesFrom(parsed.error)), ...rawIssues].filter(
     (issue, i, list) =>
       list.findIndex((v) => v.path === issue.path && v.message === issue.message) === i,
   );
   const bodyBytes = new TextEncoder().encode(JSON.stringify(design)).byteLength;
   if (bodyBytes > MAX_BODY_BYTES)
-    validation.push({ path: 'design', message: '設計內容超過 64 KiB。' });
+    validation.push({ path: 'design', message: t('validation.bodyTooLarge') });
   const componentCount = countComponents(design.component);
   const disabled =
     loading ||
@@ -155,11 +167,13 @@ export function App() {
   useEffect(() => {
     if (!managerId) return;
     let ignore = false;
-    fetch(`/api/links/${managerId}`)
+    fetch(addLocaleParam('/api/links/' + managerId, locale))
       .then(async (response) => {
         const data = (await response.json()) as { error?: string; design?: unknown };
-        if (!response.ok) throw new Error(data.error || '無法載入連結');
-        const value = designSchema.parse(data.design);
+        if (!response.ok) throw new Error(data.error || t('error.loadLink'));
+        const loaded = designSchema.safeParse(data.design, localizedParseOptions(locale));
+        if (!loaded.success) throw new Error(t('error.loadLink'));
+        const value = loaded.data;
         if (!ignore) {
           setDesign(value);
           setRaw(serialize(value));
@@ -217,7 +231,10 @@ export function App() {
     setRaw(value);
     dirtyRef.current = true;
     try {
-      const parsedPayload = payloadSchema.safeParse(JSON.parse(value));
+      const parsedPayload = payloadSchema.safeParse(
+        JSON.parse(value),
+        localizedParseOptions(locale),
+      );
       if (parsedPayload.success)
         setDesign((previous) => ({ ...previous, component: parsedPayload.data.component }));
     } catch {
@@ -243,9 +260,7 @@ export function App() {
     if (from === to) return;
     const list = [...design.component.components];
     const [item] = list.splice(from, 1);
-    const insertIndex = from < to 
-      ? (pos === 'above' ? to - 1 : to)
-      : (pos === 'above' ? to : to + 1);
+    const insertIndex = from < to ? (pos === 'above' ? to - 1 : to) : pos === 'above' ? to : to + 1;
     list.splice(insertIndex, 0, item);
     update({ ...design, component: { ...design.component, components: list } });
     setSelected(insertIndex);
@@ -255,7 +270,7 @@ export function App() {
       ...design,
       component: {
         ...design.component,
-        components: [...design.component.components, createChild(type)],
+        components: [...design.component.components, createChild(type, locale)],
       },
     });
     setSelected(design.component.components.length);
@@ -263,9 +278,9 @@ export function App() {
   async function copy(text: string) {
     try {
       await navigator.clipboard.writeText(text);
-      setToast('已複製到剪貼簿');
+      setToast(t('toast.copied'));
     } catch {
-      setToast('無法使用剪貼簿，請選取網址手動複製。');
+      setToast(t('toast.copyFailed'));
     }
   }
   async function publish() {
@@ -273,7 +288,8 @@ export function App() {
     setBusy(true);
     setError('');
     try {
-      const response = await fetch(managerId ? `/api/links/${managerId}` : '/api/links', {
+      const endpoint = managerId ? '/api/links/' + managerId : '/api/links';
+      const response = await fetch(addLocaleParam(endpoint, locale), {
         method: managerId ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -293,13 +309,13 @@ export function App() {
             '\n',
           ),
         );
-      if (!data.url) throw new Error('伺服器未回傳連結，請稍後再試');
+      if (!data.url) throw new Error(t('error.serverNoLink'));
       setDesign(parsed.data);
       setRaw(serialize(parsed.data));
       dirtyRef.current = false;
       setResult({ url: data.url, manageUrl: data.manageUrl || location.href });
     } catch (e) {
-      setError(e instanceof Error ? e.message : '發布失敗，請稍後再試');
+      setError(e instanceof Error ? e.message : t('error.publish'));
     } finally {
       setBusy(false);
     }
@@ -309,7 +325,7 @@ export function App() {
     setBusy(true);
     setError('');
     try {
-      const response = await fetch(`/api/links/${managerId}`, {
+      const response = await fetch(addLocaleParam('/api/links/' + managerId, locale), {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${managerToken}` },
       });
@@ -317,9 +333,9 @@ export function App() {
       dirtyRef.current = false;
       setDeleted(true);
       setDeleteConfirm(false);
-      setToast('短連結已刪除');
+      setToast(t('toast.deleted'));
     } catch (e) {
-      setError(e instanceof Error ? e.message : '刪除失敗');
+      setError(e instanceof Error ? e.message : t('error.delete'));
       setDeleteConfirm(false);
     } finally {
       setBusy(false);
@@ -330,12 +346,12 @@ export function App() {
     event.target.value = '';
     if (!file) return;
     if (file.size > MAX_BODY_BYTES) {
-      setError('匯入檔案不可超過 64 KiB');
+      setError(t('validation.importTooLarge'));
       return;
     }
     updateRaw(await file.text());
     setMode('json');
-    setToast('已載入 JSON，請確認驗證結果');
+    setToast(t('toast.jsonLoaded'));
   }
 
   return (
@@ -348,15 +364,26 @@ export function App() {
           </span>
         </a>
         <div className="brand-divider" />
-        <span className="topbar-title">Discord 卡片設計器</span>
+        <span className="topbar-title">{t('app.topbarTitle')}</span>
         <span className="version-tag">COMPONENTS V2</span>
+        <label className="language-select">
+          <span className="sr-only">{t('language.label')}</span>
+          <select
+            aria-label={t('language.label')}
+            value={locale}
+            onChange={(event) => onLocaleChange(event.target.value as Locale)}
+          >
+            <option value="zh-Hant">{t('language.zhHant')}</option>
+            <option value="en">{t('language.en')}</option>
+          </select>
+        </label>
         <a
           className="docs-link"
           href="https://github.com/discord/discord-api-docs/blob/anthony%2Fembed-unfurl-components/developers%2Flink-previews%2Fcomponent-embeds.mdx"
           target="_blank"
           rel="noreferrer"
         >
-          開發文件 <ArrowUpRight size={14} />
+          {t('app.docs')} <ArrowUpRight size={14} />
         </a>
       </header>
       <main className="workspace">
@@ -365,12 +392,12 @@ export function App() {
             <div className="eyebrow">
               <span /> DISCORD COMPONENTS V2
             </div>
-            <h1>{managerId ? '管理卡片內容' : '你的內容，值得更好的登場。'}</h1>
-            <p>自由組合文字、媒體與按鈕，即時打造專屬卡片。</p>
+            <h1>{managerId ? t('hero.manageTitle') : t('hero.title')}</h1>
+            <p>{t('hero.description')}</p>
           </div>
           <div className="heading-status">
             <ShieldCheck size={15} />
-            無需註冊 · 即開即用
+            {t('hero.status')}
           </div>
         </div>
         {error && (
@@ -379,45 +406,46 @@ export function App() {
           </div>
         )}
         {managerId && !managerToken && (
-          <div className="notice error">缺少管理密鑰。請使用包含 #token 的完整私人管理連結。</div>
+          <div className="notice error">{t('management.missingToken')}</div>
         )}
         {deleted && (
           <div className="notice">
-            內容已刪除。<a href="/">建立新卡片 ↗</a>
+            {t('management.deleted')}
+            <a href={addLocaleParam('/', locale)}>{t('management.createNew')}</a>
           </div>
         )}
         {managerId && !deleted && (
           <div className="notice management">
             <Link2 size={16} />
             <span>
-              正在管理{' '}
+              {t('management.prefix')}{' '}
               <a href={`/s/${managerId}`} target="_blank" rel="noreferrer">
                 /s/{managerId} ↗
               </a>
-              。儲存即更新公開內容；Discord 預覽快取可能稍有延遲。
+              {t('management.suffix')}
             </span>
           </div>
         )}
-        <nav className="mobile-tabs" aria-label="工作區">
+        <nav className="mobile-tabs" aria-label={t('workspace.label')}>
           <button
             className={mobileTab === 'edit' ? 'active' : ''}
             onClick={() => setMobileTab('edit')}
           >
             <Layers size={16} />
-            編輯設計
+            {t('workspace.edit')}
           </button>
           <button
             className={mobileTab === 'preview' ? 'active' : ''}
             onClick={() => setMobileTab('preview')}
           >
             <Eye size={16} />
-            即時預覽
+            {t('workspace.preview')}
           </button>
         </nav>
         <div className={`work-grid mobile-${mobileTab}`}>
           <section className="editor-panel">
             <div className="panel-bar">
-              <div className="editor-tabs" role="tablist" aria-label="編輯模式">
+              <div className="editor-tabs" role="tablist" aria-label={t('editor.modeLabel')}>
                 <button
                   role="tab"
                   aria-selected={mode === 'visual'}
@@ -425,7 +453,7 @@ export function App() {
                   onClick={() => setMode('visual')}
                 >
                   <Layers size={15} />
-                  視覺編輯
+                  {t('editor.visual')}
                 </button>
                 <button
                   role="tab"
@@ -439,7 +467,11 @@ export function App() {
               </div>
               <span className="save-status">
                 <span className={storageFailed ? 'warning-dot' : ''} />
-                {managerId ? '私人管理模式' : storageFailed ? '草稿儲存失敗' : '草稿已自動儲存'}
+                {managerId
+                  ? t('editor.managerMode')
+                  : storageFailed
+                    ? t('editor.storageFailed')
+                    : t('editor.draftSaved')}
               </span>
             </div>
             <div className="editor-content" aria-busy={loading}>
@@ -454,20 +486,21 @@ export function App() {
                         <LayoutTemplate size={17} />
                       </span>
                       <span>
-                        預覽資訊<small>標題、說明與封面圖片</small>
+                        {t('editor.previewInfo')}
+                        <small>{t('editor.previewInfoHint')}</small>
                       </span>
                     </div>
                     <ChevronDown size={16} />
                   </summary>
                   <div className="settings-fields">
-                    <Field label="預覽標題">
+                    <Field label={t('editor.previewTitle')}>
                       <input
                         value={design.title}
                         maxLength={200}
                         onChange={(e) => update({ ...design, title: e.target.value })}
                       />
                     </Field>
-                    <Field label="預覽描述">
+                    <Field label={t('editor.previewDescription')}>
                       <textarea
                         rows={2}
                         value={design.description}
@@ -475,10 +508,7 @@ export function App() {
                         onChange={(e) => update({ ...design, description: e.target.value })}
                       />
                     </Field>
-                    <Field
-                      label="封面網址（選填）"
-                      hint="cdn.discordapp.com 的 attachments 網址會自動套用媒體前綴。"
-                    >
+                    <Field label={t('editor.coverUrl')} hint={t('editor.mediaPrefixHint')}>
                       <input
                         type="url"
                         value={design.image || ''}
@@ -495,12 +525,13 @@ export function App() {
                   <>
                     <div className="container-settings">
                       <div className="section-label">
-                        <span className="step-number">01</span>容器樣式
+                        <span className="step-number">01</span>
+                        {t('editor.containerStyle')}
                       </div>
                       <div className="container-controls">
                         <label className="color-control">
                           <input
-                            aria-label="容器色彩"
+                            aria-label={t('editor.containerColor')}
                             type="color"
                             value={`#${(design.component.accent_color ?? 0xbef264).toString(16).padStart(6, '0')}`}
                             onChange={(e) =>
@@ -513,10 +544,10 @@ export function App() {
                               })
                             }
                           />
-                          <span>強調色</span>
+                          <span>{t('editor.accentColor')}</span>
                           <code>
                             {design.component.accent_color == null
-                              ? '無'
+                              ? t('editor.none')
                               : `#${design.component.accent_color.toString(16).padStart(6, '0').toUpperCase()}`}
                           </code>
                         </label>
@@ -529,10 +560,10 @@ export function App() {
                             })
                           }
                         >
-                          清除
+                          {t('editor.clear')}
                         </button>
                         <Check
-                          label="隱藏內容"
+                          label={t('editor.hideContent')}
                           checked={design.component.spoiler}
                           onChange={(spoiler) =>
                             update({ ...design, component: { ...design.component, spoiler } })
@@ -542,9 +573,10 @@ export function App() {
                     </div>
                     <div className="component-heading">
                       <div className="section-label">
-                        <span className="step-number">02</span>組合你的內容
+                        <span className="step-number">02</span>
+                        {t('editor.compose')}
                       </div>
-                      <span>{componentCount} / 40 元件</span>
+                      <span>{t('editor.componentCount', { count: componentCount })}</span>
                     </div>
                     <div className="component-list">
                       {design.component.components.map((child, index) => {
@@ -596,8 +628,8 @@ export function App() {
                               <div
                                 className="drag-handle"
                                 draggable
-                                title="拖曳以排序"
-                                aria-label={`拖曳排序元件 ${index + 1}`}
+                                title={t('component.dragTitle')}
+                                aria-label={t('component.dragLabel', { index: index + 1 })}
                                 onDragStart={(e) => {
                                   e.dataTransfer.setData('text/plain', String(index));
                                   e.dataTransfer.effectAllowed = 'move';
@@ -625,7 +657,7 @@ export function App() {
                                 <span className="component-icon">
                                   <Icon size={16} />
                                 </span>
-                                <span>{childNames[child.type]}</span>
+                                <span>{childName(child.type, locale)}</span>
                                 <span className="component-index">
                                   {String(index + 1).padStart(2, '0')}
                                 </span>
@@ -633,8 +665,8 @@ export function App() {
                               <div className="component-actions">
                                 <button
                                   className="icon-button"
-                                  aria-label={`上移元件 ${index + 1}`}
-                                  title="上移"
+                                  aria-label={t('component.moveUpLabel', { index: index + 1 })}
+                                  title={t('component.moveUp')}
                                   disabled={index === 0}
                                   onClick={() => move(index, -1)}
                                 >
@@ -642,8 +674,8 @@ export function App() {
                                 </button>
                                 <button
                                   className="icon-button"
-                                  aria-label={`下移元件 ${index + 1}`}
-                                  title="下移"
+                                  aria-label={t('component.moveDownLabel', { index: index + 1 })}
+                                  title={t('component.moveDown')}
                                   disabled={index === design.component.components.length - 1}
                                   onClick={() => move(index, 1)}
                                 >
@@ -651,8 +683,8 @@ export function App() {
                                 </button>
                                 <button
                                   className="icon-button"
-                                  aria-label={`複製元件 ${index + 1}`}
-                                  title="複製"
+                                  aria-label={t('component.copyLabel', { index: index + 1 })}
+                                  title={t('component.copy')}
                                   disabled={componentCount >= 40}
                                   onClick={() => {
                                     const list = [...design.component.components];
@@ -668,8 +700,8 @@ export function App() {
                                 </button>
                                 <button
                                   className="icon-button danger"
-                                  aria-label={`刪除元件 ${index + 1}`}
-                                  title="刪除"
+                                  aria-label={t('component.deleteLabel', { index: index + 1 })}
+                                  title={t('component.delete')}
                                   onClick={() => {
                                     update({
                                       ...design,
@@ -702,7 +734,7 @@ export function App() {
                     <div className="add-components">
                       <div>
                         <Plus size={14} />
-                        新增元件
+                        {t('component.add')}
                       </div>
                       <div className="component-palette">
                         {([10, 9, 12, 14, 1] as const).map((type) => {
@@ -714,7 +746,7 @@ export function App() {
                               onClick={() => add(type)}
                             >
                               <Icon size={17} />
-                              <span>{childNames[type]}</span>
+                              <span>{childName(type, locale)}</span>
                             </button>
                           );
                         })}
@@ -728,7 +760,7 @@ export function App() {
                       <div>
                         <button className="text-action" onClick={() => fileInput.current?.click()}>
                           <Upload size={13} />
-                          匯入
+                          {t('json.import')}
                         </button>
                         <button
                           className="text-action"
@@ -741,7 +773,7 @@ export function App() {
                           }
                         >
                           <Download size={13} />
-                          匯出
+                          {t('json.export')}
                         </button>
                       </div>
                     </div>
@@ -751,10 +783,7 @@ export function App() {
                       onChange={(e) => updateRaw(e.target.value)}
                       spellCheck={false}
                     />
-                    <p className="field-hint">
-                      直接貼上 {'{ component: … }'}。驗證通過後會同步至視覺編輯器；未完成的 JSON
-                      會保留。
-                    </p>
+                    <p className="field-hint">{t('json.hint')}</p>
                   </div>
                 )}
                 <input
@@ -767,7 +796,7 @@ export function App() {
               </fieldset>
               {validation.length > 0 && (
                 <div className="validation" role="alert">
-                  <strong>發布前，還有幾個地方需要調整</strong>
+                  <strong>{t('validation.summary')}</strong>
                   <ul>
                     {validation.slice(0, 8).map((issue, i) => (
                       <li key={i}>
@@ -775,14 +804,16 @@ export function App() {
                       </li>
                     ))}
                   </ul>
-                  {validation.length > 8 && <span>另有 {validation.length - 8} 個錯誤</span>}
+                  {validation.length > 8 && (
+                    <span>{t('validation.more', { count: validation.length - 8 })}</span>
+                  )}
                 </div>
               )}
             </div>
             <div className="editor-footer">
               <span>
                 <ShieldCheck size={14} />
-                {managerId ? '已驗證管理權限' : '發布後取得專屬管理密鑰'}
+                {managerId ? t('editor.managerVerified') : t('editor.managerKeyAfterPublish')}
               </span>
               <button
                 className="text-action"
@@ -793,7 +824,7 @@ export function App() {
                 disabled={loading || deleted || busy}
               >
                 <Upload size={13} />
-                匯入 JSON
+                {t('json.importFile')}
               </button>
             </div>
           </section>
@@ -801,7 +832,7 @@ export function App() {
             <div className="preview-bar">
               <span>
                 <Eye size={16} />
-                即時預覽
+                {t('workspace.preview')}
               </span>
               <span className="live-pill">
                 <i />
@@ -810,7 +841,7 @@ export function App() {
             </div>
             <div className="preview-surface">
               <div className="channel-label">
-                <span>#</span> 預覽頻道{' '}
+                <span>#</span> {t('preview.channel')}{' '}
                 <span className="channel-icon">
                   <Layers size={14} />
                 </span>
@@ -821,7 +852,8 @@ export function App() {
                 </div>
                 <div className="message-content">
                   <div className="message-author">
-                    你的名字<span>今天 12:00</span>
+                    {t('preview.author')}
+                    <span>{t('preview.today')}</span>
                   </div>
                   <div className="sample-link">https://forma.link/s/your-idea</div>
                   <Preview component={design.component} />
@@ -829,29 +861,34 @@ export function App() {
               </div>
               <div className="preview-note">
                 <span />
-                <span>Discord 預覽模擬，實際顯示以 Discord 為準。</span>
+                <span>{t('preview.note')}</span>
               </div>
             </div>
             <div className="publish-card">
               <div className="publish-icon">
                 <Link2 size={23} />
               </div>
-              <h2>準備發布</h2>
+              <h2>{t('publish.ready')}</h2>
               <p>
-                生成專屬網址，貼入 Discord 即可呈現卡片。
+                {t('publish.description1')}
                 <br />
-                永久有效，無需註冊帳號。
+                {t('publish.description2')}
               </p>
               <button className="publish-button" disabled={disabled} onClick={publish}>
                 {busy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}
-                {loading ? '載入設計中…' : managerId ? '儲存變更' : '生成短連結'}
+                {loading
+                  ? t('publish.loading')
+                  : managerId
+                    ? t('publish.save')
+                    : t('publish.create')}
                 <ArrowUpRight size={18} />
               </button>
               <div className="publish-meta">
                 <CheckIcon size={12} />
-                公開展示頁<span>·</span>
+                {t('publish.publicPage')}
+                <span>·</span>
                 <CheckIcon size={12} />
-                附管理憑證
+                {t('publish.managementCredential')}
               </div>
               {managerId && !deleted && (
                 <button
@@ -860,15 +897,15 @@ export function App() {
                   onClick={() => setDeleteConfirm(true)}
                 >
                   <Trash2 size={13} />
-                  刪除此連結
+                  {t('publish.delete')}
                 </button>
               )}
             </div>
             <div className="tip">
               <span>✦</span>
               <p>
-                <strong>設計小技巧</strong>
-                加入醒目標題、配圖或按鈕，讓卡片更具吸引力。
+                <strong>{t('tip.title')}</strong>
+                {t('tip.body')}
               </p>
             </div>
           </aside>
@@ -883,7 +920,7 @@ export function App() {
       <dialog ref={dialogRef} className="result-dialog" onCancel={() => setResult(null)}>
         <button
           className="dialog-close icon-button"
-          aria-label="關閉發布結果"
+          aria-label={t('dialog.closeResult')}
           onClick={() => setResult(null)}
         >
           <X size={18} />
@@ -892,36 +929,39 @@ export function App() {
           <CheckIcon size={25} />
         </div>
         <div className="eyebrow">READY TO SHARE</div>
-        <h2>{managerId ? '已更新卡片內容' : '卡片已成功建立'}</h2>
-        <p>將網址貼到 Discord 頻道，即可自動展開卡片。</p>
+        <h2>{managerId ? t('dialog.updated') : t('dialog.created')}</h2>
+        <p>{t('dialog.shareHint')}</p>
         {result && (
           <>
-            <Field label="公開短連結">
+            <Field label={t('dialog.publicLink')}>
               <div className="copy-field">
                 <input readOnly value={result.url} onFocus={(e) => e.target.select()} />
-                <button aria-label="複製短連結" onClick={() => copy(result.url)}>
+                <button aria-label={t('dialog.copyPublic')} onClick={() => copy(result.url)}>
                   <Copy size={17} />
                 </button>
               </div>
             </Field>
             <a className="open-result" href={result.url} target="_blank" rel="noreferrer">
-              開啟展示頁 <ExternalLink size={14} />
+              {t('dialog.openPage')} <ExternalLink size={14} />
             </a>
             <div className="management-secret">
               <ShieldCheck size={19} />
               <div>
-                <strong>保存你的私人管理連結</strong>
-                <p>這是修改與刪除內容的唯一憑證。請妥善保存，勿公開分享；遺失後無法復原。</p>
+                <strong>{t('dialog.managerTitle')}</strong>
+                <p>{t('dialog.managerBody')}</p>
               </div>
             </div>
             <div className="copy-field">
               <input
-                aria-label="私人管理連結"
+                aria-label={t('dialog.privateLink')}
                 readOnly
                 value={result.manageUrl || ''}
                 onFocus={(e) => e.target.select()}
               />
-              <button aria-label="複製管理連結" onClick={() => copy(result.manageUrl || '')}>
+              <button
+                aria-label={t('dialog.copyPrivate')}
+                onClick={() => copy(result.manageUrl || '')}
+              >
                 <Copy size={17} />
               </button>
             </div>
@@ -929,28 +969,35 @@ export function App() {
               className="publish-button"
               onClick={() =>
                 download(
-                  `Forma 私人管理連結（請勿公開）\n${result.manageUrl}\n\n公開短連結\n${result.url}\n`,
+                  t('download.managerTitle') +
+                    '\n' +
+                    result.manageUrl +
+                    '\n\n' +
+                    t('download.publicTitle') +
+                    '\n' +
+                    result.url +
+                    '\n',
                   'forma-management.txt',
                   'text/plain',
                 )
               }
             >
               <Download size={16} />
-              保存管理連結
+              {t('dialog.savePrivate')}
             </button>
-            <p className="dialog-footnote">修改後，Discord 已有的預覽可能需要一段時間才會更新。</p>
+            <p className="dialog-footnote">{t('dialog.cacheNote')}</p>
           </>
         )}
       </dialog>
       <dialog ref={deleteRef} className="result-dialog" onCancel={() => setDeleteConfirm(false)}>
-        <h2>刪除這個短連結？</h2>
-        <p>公開展示頁將無法存取，這個動作無法復原。</p>
+        <h2>{t('dialog.deleteTitle')}</h2>
+        <p>{t('dialog.deleteBody')}</p>
         <div className="dialog-actions">
           <button onClick={() => setDeleteConfirm(false)} disabled={busy}>
-            保留連結
+            {t('dialog.keep')}
           </button>
           <button className="danger-button" onClick={remove} disabled={busy}>
-            {busy ? '刪除中…' : '確認刪除'}
+            {busy ? t('dialog.deleting') : t('dialog.confirmDelete')}
           </button>
         </div>
       </dialog>

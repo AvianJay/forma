@@ -18,6 +18,54 @@ test('homepage has a crawler-readable Components V2 embed and a working editor',
   await expect(page.getByRole('button', { name: '生成短連結', exact: true })).toBeEnabled();
 });
 
+test('English locale persists, preserves authored content, and supports management', async ({
+  page,
+}) => {
+  await page.goto('/?lang=en');
+  await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+  await expect(
+    page.getByRole('button', { name: 'Generate short link', exact: true }),
+  ).toBeEnabled();
+  await page.getByLabel('Text content', { exact: true }).first().fill('Do not translate this');
+
+  const language = page.locator('.language-select select');
+  await language.selectOption('zh-Hant');
+  await expect(page.getByRole('button', { name: '生成短連結', exact: true })).toBeVisible();
+  await expect(page.getByLabel('文字內容', { exact: true }).first()).toHaveValue(
+    'Do not translate this',
+  );
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang', 'zh-Hant');
+  await expect(page.getByLabel('文字內容', { exact: true }).first()).toHaveValue(
+    'Do not translate this',
+  );
+
+  await page.locator('.language-select select').selectOption('en');
+  await page
+    .locator('.component-palette')
+    .getByRole('button', { name: 'Text', exact: true })
+    .click();
+  await expect(page.getByLabel('Text content', { exact: true }).last()).toHaveValue(
+    'Write your content here…',
+  );
+
+  await page.getByRole('button', { name: 'Generate short link', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Card created successfully');
+  const managerUrl = await page
+    .getByRole('textbox', { name: 'Private management link', exact: true })
+    .inputValue();
+  const manager = new URL(managerUrl);
+  manager.searchParams.set('lang', 'en');
+  await page.goto(manager.toString());
+  await expect(page.getByRole('button', { name: 'Save changes', exact: true })).toBeEnabled();
+  await expect(page.getByLabel('Text content', { exact: true }).first()).toHaveValue(
+    'Do not translate this',
+  );
+  await page.getByRole('button', { name: 'Delete this link', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Short link deleted');
+});
+
 test('visual editing, reorder, duplicate, draft restore, JSON roundtrip and invalid import', async ({
   page,
 }) => {
@@ -137,7 +185,10 @@ test('publish, crawl without JavaScript, copy, save manager link, update and del
   expect(await crawler.text()).toContain('id="discord:component-embed" type="application/json"');
   const noJs = await context.browser()!.newContext({ javaScriptEnabled: false });
   const publicPage = await noJs.newPage();
-  await publicPage.goto(shareUrl);
+  await publicPage.goto(shareUrl + '?lang=en');
+  await expect(publicPage.locator('.user-content-notice')).toHaveText(
+    'This page contains user-created content.',
+  );
   await expect(publicPage.locator('.discord-card')).toContainText('把好點子，分享出去。');
   await noJs.close();
   await page.goto(managerUrl);
@@ -169,6 +220,9 @@ test('mobile workspace switches panels without horizontal overflow', async ({ pa
   expect(fits).toBe(true);
   await page.getByRole('button', { name: '編輯設計', exact: true }).click();
   await expect(page.getByLabel('文字內容', { exact: true })).toBeVisible();
+  await page.locator('.language-select select').selectOption('en');
+  await expect(page.getByRole('button', { name: 'Edit design', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
 test('unfinished visual drafts survive reload without losing components', async ({ page }) => {

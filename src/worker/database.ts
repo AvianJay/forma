@@ -2,7 +2,7 @@ import initialSchema from '../../migrations/0001_links.sql?raw';
 
 export class ServiceConfigurationError extends Error {
   constructor(public readonly code: 'database_binding_missing' | 'rate_limiter_binding_missing') {
-    super('服務設定尚未完成，請聯絡網站管理者');
+    super(code);
   }
 }
 

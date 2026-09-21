@@ -214,6 +214,37 @@ describe('Worker with real local D1', () => {
     expect((await worker.fetch(request('/api/unknown'), env)).status).toBe(404);
     expect(await (await worker.fetch(request('/manage/AAAAAAAAAA'), env)).text()).toBe('spa');
   });
+  it('localizes API errors and server-rendered pages per request', async () => {
+    const invalid = await worker.fetch(
+      request('/api/links?lang=en', 'POST', { ...initialDesign, title: '' }),
+      env,
+    );
+    expect(invalid.status).toBe(400);
+    expect(invalid.headers.get('Content-Language')).toBe('en');
+    expect(invalid.headers.get('Set-Cookie')).toContain('forma_locale=en');
+    expect(await invalid.text()).toContain('Enter a preview title');
+
+    const detected = request('/api/unknown');
+    detected.headers.set('Accept-Language', 'fr-FR, en;q=0.8');
+    const detectedResponse = await worker.fetch(detected, env);
+    expect(detectedResponse.headers.get('Content-Language')).toBe('en');
+    expect(await detectedResponse.text()).toContain('Link not found');
+
+    const stored = request('/api/unknown');
+    stored.headers.set('Cookie', 'forma_locale=zh-Hant');
+    stored.headers.set('Accept-Language', 'en-US');
+    const storedResponse = await worker.fetch(stored, env);
+    expect(storedResponse.headers.get('Content-Language')).toBe('zh-Hant');
+    expect(await storedResponse.text()).toContain('找不到此連結');
+
+    const link = await create();
+    const publicResponse = await worker.fetch(request('/s/' + link.id + '?lang=en'), env);
+    const publicBody = await publicResponse.text();
+    expect(publicResponse.headers.get('Content-Language')).toBe('en');
+    expect(publicBody).toContain('<html lang="en">');
+    expect(publicBody).toContain('This page contains user-created content.');
+    expect(publicBody).toContain('把好點子，分享出去。');
+  });
   it('serves crawler HTML without JS, escapes JSON and HTML, and keeps secrets out', async () => {
     const attack = '</script><script>alert("xss")</script> & <img src=x onerror=alert(1)>';
     const design = {
@@ -307,6 +338,18 @@ describe('homepage component embed', () => {
       expect(parsed).toEqual({ component: homepageDesign('https://forma.test').component });
       expect(designSchema.safeParse(homepageDesign('https://forma.test')).success).toBe(true);
     }
+    const englishResponse = await worker.fetch(request('/?lang=en'), homepageEnv);
+    const englishBody = await englishResponse.text();
+    expect(englishResponse.headers.get('Content-Language')).toBe('en');
+    expect(englishBody).toContain('<html lang="en">');
+    expect(englishBody).toContain('Forma — Discord Link Designer');
+    const englishScript =
+      /<script id="discord:component-embed" type="application\/json">([\s\S]*?)<\/script>/.exec(
+        englishBody,
+      )!;
+    expect(payloadSchema.parse(JSON.parse(englishScript[1]))).toEqual({
+      component: homepageDesign('https://forma.test', 'en').component,
+    });
     const head = await worker.fetch(request('/', 'HEAD'), homepageEnv);
     expect(head.status).toBe(200);
     expect(await head.text()).toBe('');

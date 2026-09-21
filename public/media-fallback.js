@@ -10,12 +10,13 @@ document.addEventListener(
       return;
     const fallback = document.createElement('div');
     fallback.className = 'media-placeholder';
-    fallback.textContent = '媒體無法載入 ';
+    const english = document.documentElement.lang.toLowerCase().startsWith('en');
+    fallback.textContent = english ? 'Media could not be loaded ' : '媒體無法載入 ';
     const link = document.createElement('a');
     link.href = media.src;
     link.target = '_blank';
     link.rel = 'noreferrer';
-    link.textContent = '開啟原始網址 ↗';
+    link.textContent = english ? 'Open original URL ↗' : '開啟原始網址 ↗';
     fallback.append(link);
     media.replaceWith(fallback);
   },
